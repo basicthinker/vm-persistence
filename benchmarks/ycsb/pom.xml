@@ -53,6 +53,7 @@
     <mongodb.version>2.11.2</mongodb.version>
     <orientdb.version>1.0.1</orientdb.version>
     <redis.version>2.0.0</redis.version>
+    <vmdb.version>1.0</vmdb.version>
     <voldemort.version>0.81</voldemort.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <thrift.version>0.8.0</thrift.version>
@@ -71,11 +72,12 @@
     <!--<module>gemfire</module>-->
     <module>infinispan</module>
     <module>jdbc</module>
-    <module>mapkeeper</module>
+    <!--module>mapkeeper</module-->
     <module>mongodb</module>
     <module>orientdb</module>
     <!--module>nosqldb</module-->
     <module>redis</module>
+    <module>vmdb</module>
     <module>voldemort</module>
     <module>distribution</module>
   </modules>
