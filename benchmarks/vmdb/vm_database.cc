@@ -3,8 +3,6 @@
 
 #include "vm_database.h"
 
-using namespace std;
-
 char** VMDatabase::Read(const char *table, const char *key,
     const char *fields[]) {
   return (char **)0;
