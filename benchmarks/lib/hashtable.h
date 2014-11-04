@@ -36,7 +36,7 @@ class Hashtable {
  public:
   typedef HashtableKVPair<V> KVPair;
 
-  V Get(const char *key); ///< Returns NULL if the key is not found
+  V Get(const char *key) const; ///< Returns NULL if the key is not found
   bool Insert(const char *key, V value);
   V Update(const char *key, V value);
   KVPair Remove(const char *key);
@@ -47,14 +47,13 @@ class Hashtable {
 
  private:
   typedef typename
-      std::unordered_map<const char *, V, CStrHash, CStrEqual>::const_iterator
-      HashtableIterator;
-  std::unordered_map<const char *, V, CStrHash, CStrEqual> table_;
+      std::unordered_map<const char *, V, CStrHash, CStrEqual> CStrHashtable;
+  CStrHashtable table_;
 };
 
 template<class V>
-V Hashtable<V>::Get(const char *key) {
-  HashtableIterator pos = table_.find(key);
+V Hashtable<V>::Get(const char *key) const {
+  typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
   else return pos->second;
 }
@@ -66,17 +65,16 @@ bool Hashtable<V>::Insert(const char *key, V value) {
 
 template<class V>
 V Hashtable<V>::Update(const char *key, V value) {
-  HashtableIterator pos = table_.find(key);
+  typename CStrHashtable::iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
   V old = pos->second;
-  pos = table_.erase(pos);
-  table_.insert(pos, std::make_pair(key, value));
+  pos->second = value;
   return old;
 }
 
 template<class V>
 typename Hashtable<V>::KVPair Hashtable<V>::Remove(const char *key) {
-  HashtableIterator pos = table_.find(key);
+  typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return {NULL, NULL};
   KVPair pair = {pos->first, pos->second};
   table_.erase(pos);
@@ -92,7 +90,8 @@ template<class V>
 const char **Hashtable<V>::Keys() const {
   const char **keys = new const char *[table_.size() + 1];
   int i = 0;
-  for (HashtableIterator it = table_.begin(); it != table_.end(); ++it, ++i) {
+  for (typename CStrHashtable::const_iterator it = table_.begin();
+      it != table_.end(); ++it, ++i) {
     keys[i] = it->first;
   }
   keys[i] = NULL;
@@ -103,7 +102,8 @@ template<class V>
 V *Hashtable<V>::Values() const {
   V *values = new V[table_.size() + 1];
   int i = 0;
-  for (HashtableIterator it = table_.begin(); it != table_.end(); ++it, ++i) {
+  for (typename CStrHashtable::const_iterator it = table_.begin();
+      it != table_.end(); ++it, ++i) {
     values[i] = it->second;
   }
   values[i] = V(NULL);
