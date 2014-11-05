@@ -41,7 +41,7 @@ class Test {
       System.out.println("Update 4 wrong return value!");
     }
 
-    results = vmdb.Read(table_key, fields);
+    results = vmdb.Read(table_key, null);
     System.out.println("Test 2: update and read");
     for (int i = 0; i < results.length; ++i) {
       System.out.println("\t" + results[i]);

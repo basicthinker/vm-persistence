@@ -18,9 +18,9 @@ class VMDatabase {
   typedef Hashtable<const char *> CStrHashtable;
   Hashtable<CStrHashtable *> store_;
 
-  int ArrayLength(const char **array);
   const char *StoreCopy(const char *str);
-  std::size_t FreeElements(const char **array);
+  int ArrayLength(const char **array);
+  int FreeElements(const char **array);
 };
 
 #endif // VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_

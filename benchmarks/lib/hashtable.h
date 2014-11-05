@@ -60,6 +60,7 @@ V Hashtable<V>::Get(const char *key) const {
 
 template<class V>
 bool Hashtable<V>::Insert(const char *key, V value) {
+  if (!key) return false;
   return table_.insert(std::make_pair(key, value)).second;
 }
 

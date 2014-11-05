@@ -6,14 +6,32 @@
 
 const char **VMDatabase::Read(const char *key, const char **fields) {
   CStrHashtable *v = store_.Get(key);
-  const int len = v ? ArrayLength(fields) : 0;
-  const char **values = new const char *[len + 1];
-  for (int i = 0; i < len; ++i) {
-    values[i] = v->Get(fields[i]);
+  if (v && !fields) {
+    const char **keys = v->Keys();
+    const char **values = v->Values();
+    const int len = ArrayLength(keys);
+    assert(len == ArrayLength(values));
+
+    const char **pairs = new const char *[2 * len + 1];
+    for (int i = 0; i < len; ++i) {
+      pairs[i] = keys[i];
+      pairs[len + i] = values[i];
+    }
+    pairs[2 * len] = NULL;
+
+    delete keys;
+    delete values;
+    return pairs;
+  } else {
+    const int len = v ? ArrayLength(fields) : 0;
+    const char **values = new const char *[len + 1];
+    for (int i = 0; i < len; ++i) {
+      values[i] = v->Get(fields[i]);
+    }
+    values[len] = NULL;
+    FreeElements(fields);
+    return values;
   }
-  values[len] = NULL;
-  FreeElements(fields);
-  return values;
 }
 
 int VMDatabase::Update(const char *key,
@@ -72,14 +90,6 @@ int VMDatabase::Delete(const char *key) {
   return 0;
 }
 
-int VMDatabase::ArrayLength(const char **array) {
-  int len = 0;
-  while (array[len] != NULL) {
-    ++len;
-  }
-  return len;
-}
-
 const char *VMDatabase::StoreCopy(const char *str) {
   int len = strlen(str);
   char *copy = new char[len + 1];
@@ -87,8 +97,18 @@ const char *VMDatabase::StoreCopy(const char *str) {
   return copy;
 }
 
-std::size_t VMDatabase::FreeElements(const char **array) {
-  std::size_t num = 0;
+int VMDatabase::ArrayLength(const char **array) {
+  int len = 0;
+  if (!array) return len;
+  while (array[len] != NULL) {
+    ++len;
+  }
+  return len;
+}
+
+int VMDatabase::FreeElements(const char **array) {
+  int num = 0;
+  if (!array) return num;
   while (*array != NULL) {
     delete *array;
     ++array;
