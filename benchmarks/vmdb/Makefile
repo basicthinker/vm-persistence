@@ -1,6 +1,5 @@
 CXX = c++
 CFLAGS = -fpic -Wall -c -std=c++11
-LOPT = -shared
 
 INTERFACE = vm_database
 DEP_PROJ = ../lib
@@ -15,10 +14,11 @@ UNAME_S = $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
 	JDK_DIR = /usr/lib/jvm/java-7-openjdk-amd64
 	INCLUDES += -I$(JDK_DIR)/include -I$(JDK_DIR)/include/linux
+	LOPT = -shared
 	LIB_SUFFIX = so
-endif
-ifeq ($(UNAME_S),Darwin)
+else ifeq ($(UNAME_S),Darwin)
 	INCLUDES += -I/System/Library/Frameworks/JavaVM.framework/Headers
+	LOPT = -dynamiclib
 	LIB_SUFFIX = jnilib
 endif
 
