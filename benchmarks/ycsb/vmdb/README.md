@@ -18,5 +18,5 @@ This section describes how to run YCSB on VMDB.
 
 Example workload test:
 
-    ./bin/ycsb run vmdb -s -P workloads/workloadd > outputRun.txt
+    ./bin/ycsb run vmdb -s -P workloads/workloadd -threads 8 -p operationcount=100000 > outputRun.txt
     
