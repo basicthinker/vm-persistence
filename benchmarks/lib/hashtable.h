@@ -1,4 +1,4 @@
-// hash_table.h
+// hashtable.h
 // Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>
 
 #ifndef VM_PERSISTENCE_BENCHMARK_HASHTABLE_H_
@@ -6,24 +6,6 @@
 
 #include <cstring>
 #include <unordered_map>
-
-struct CStrHash {
-  std::size_t operator()(const char *str) const {
-    // sdbm
-    size_t hash = 0;
-    size_t c;
-    while ((c = *str++) != '\0') {
-      hash = c + (hash << 6) + (hash << 16) - hash;
-    }
-    return hash;
-  }
-};
-
-struct CStrEqual {
-  bool operator()(const char *a, const char *b) const {
-    return strcmp(a, b) == 0;
-  }
-};
 
 template<class V>
 struct HashtableKVPair {
@@ -36,80 +18,17 @@ class Hashtable {
  public:
   typedef HashtableKVPair<V> KVPair;
 
-  V Get(const char *key) const; ///< Returns NULL if the key is not found
-  bool Insert(const char *key, V value);
-  V Update(const char *key, V value);
-  KVPair Remove(const char *key);
+  virtual V Get(const char *key) const = 0; ///< Returns NULL if not found
+  virtual bool Insert(const char *key, V value) = 0;
+  virtual V Update(const char *key, V value) = 0;
+  virtual KVPair Remove(const char *key) = 0;
 
-  std::size_t Size() const;
-  const char **Keys() const;
-  V *Values() const;
+  virtual std::size_t Size() const = 0;
+  virtual const char **Keys() const = 0;
+  virtual V *Values() const = 0;
 
- private:
-  typedef typename
-      std::unordered_map<const char *, V, CStrHash, CStrEqual> CStrHashtable;
-  CStrHashtable table_;
+  virtual ~Hashtable() { }
 };
-
-template<class V>
-V Hashtable<V>::Get(const char *key) const {
-  typename CStrHashtable::const_iterator pos = table_.find(key);
-  if (pos == table_.end()) return NULL;
-  else return pos->second;
-}
-
-template<class V>
-bool Hashtable<V>::Insert(const char *key, V value) {
-  if (!key) return false;
-  return table_.insert(std::make_pair(key, value)).second;
-}
-
-template<class V>
-V Hashtable<V>::Update(const char *key, V value) {
-  typename CStrHashtable::iterator pos = table_.find(key);
-  if (pos == table_.end()) return NULL;
-  V old = pos->second;
-  pos->second = value;
-  return old;
-}
-
-template<class V>
-typename Hashtable<V>::KVPair Hashtable<V>::Remove(const char *key) {
-  typename CStrHashtable::const_iterator pos = table_.find(key);
-  if (pos == table_.end()) return {NULL, NULL};
-  KVPair pair = {pos->first, pos->second};
-  table_.erase(pos);
-  return pair;
-}
-
-template<class V>
-std::size_t Hashtable<V>::Size() const {
-  return table_.size();
-}
- 
-template<class V>
-const char **Hashtable<V>::Keys() const {
-  const char **keys = new const char *[table_.size() + 1];
-  int i = 0;
-  for (typename CStrHashtable::const_iterator it = table_.begin();
-      it != table_.end(); ++it, ++i) {
-    keys[i] = it->first;
-  }
-  keys[i] = NULL;
-  return keys;
-}
-
-template<class V>
-V *Hashtable<V>::Values() const {
-  V *values = new V[table_.size() + 1];
-  int i = 0;
-  for (typename CStrHashtable::const_iterator it = table_.begin();
-      it != table_.end(); ++it, ++i) {
-    values[i] = it->second;
-  }
-  values[i] = V(NULL);
-  return values;
-}
 
 #endif // VM_PERSISTENCE_BENCHMARK_HASHTABLE_H_
 
