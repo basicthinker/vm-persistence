@@ -3,11 +3,20 @@
 
 #include "vm_database.h"
 #include <cassert>
+#include "stl_hashtable.h"
+
+VMDatabase::VMDatabase() {
+  store_ = new STLHashtable<CStrHashtable *>;
+}
+
+VMDatabase::~VMDatabase() {
+  delete store_;
+}
 
 const char **VMDatabase::Read(const char *key, const char **fields) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  CStrHashtable *v = store_.Get(key);
+  CStrHashtable *v = store_->Get(key);
   if (v && !fields) {
     const char **keys = v->Keys();
     const char **values = v->Values();
@@ -40,7 +49,7 @@ int VMDatabase::Update(const char *key,
     const char **fields, const char **values) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  CStrHashtable *v = store_.Get(key);
+  CStrHashtable *v = store_->Get(key);
   if (!v) return 0;
   const int len = ArrayLength(fields);
   int num = 0;
@@ -61,10 +70,10 @@ int VMDatabase::Insert(const char *key,
     const char **fields, const char **values) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  CStrHashtable *v = store_.Get(key);
+  CStrHashtable *v = store_->Get(key);
   if (!v) {
-    v = new CStrHashtable;
-    store_.Insert(StoreCopy(key), v);
+    v = new STLHashtable<const char *>;
+    store_->Insert(StoreCopy(key), v);
   }
   const int len = ArrayLength(fields);
   for (int i = 0; i < len; ++i) {
@@ -79,7 +88,7 @@ int VMDatabase::Insert(const char *key,
 int VMDatabase::Delete(const char *key) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  Hashtable<CStrHashtable *>::KVPair pair = store_.Remove(key);
+  Hashtable<CStrHashtable *>::KVPair pair = store_->Remove(key);
   if (pair.key) {
     delete pair.key;
 
