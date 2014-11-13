@@ -6,7 +6,6 @@
 #define VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_
 
 #include "hashtable.h"
-#include <mutex>
 
 class VMDatabase {
  public:
@@ -25,8 +24,6 @@ class VMDatabase {
   const char *StoreCopy(const char *str);
   int ArrayLength(const char **array);
   int FreeElements(const char **array);
-
-  std::mutex mutex_;
 };
 
 #endif // VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_
