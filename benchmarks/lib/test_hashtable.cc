@@ -5,8 +5,6 @@
 
 using namespace std;
 
-int FreeElements(const char **array);
-
 int main() {
   Hashtable<const char *> *table = new STLHashtable<const char *>;
 
@@ -20,7 +18,7 @@ int main() {
   cout << table->Insert(ka, va) << endl;
   cout << !table->Insert(ka, vb) << endl;
   cout << table->Insert(kb, vb) << endl;
-  cout << (strcmp(table->Get(kb), "4") == 0) << endl;
+  cout << (strcmp(table->Get("3"), "4") == 0) << endl;
 
   delete table->Update(ka, c);	// frees va
   cout << (strcmp(table->Get(ka), "c") == 0) << endl;
@@ -31,22 +29,14 @@ int main() {
   cout << (table->Remove("3").key == NULL) << endl;
   cout << (table->Get("3") == NULL) << endl;
 
-  const char **keys = table->Keys();
-  int num = FreeElements(keys);
-  delete keys;
-  const char **values = table->Values();
-  num += FreeElements(values);
-  delete values;
-  cout << (num == 2) << endl;
-}
-
-int FreeElements(const char **array) {
+  Hashtable<const char *>::KVPair *pairs = table->Entries();
   int num = 0;
-  while (*array != NULL) {
-    delete *array;
-    ++array;
+  for (Hashtable<const char *>::KVPair *it = pairs; it->key; ++it) {
+    delete it->key;
+    delete it->value;
     ++num;
   }
-  return num;
+  delete pairs; 
+  cout << (num == 1) << endl;
 }
 

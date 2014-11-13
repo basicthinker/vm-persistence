@@ -39,8 +39,7 @@ class STLHashtable : public Hashtable<V> {
   KVPair Remove(const char *key);
 
   std::size_t Size() const;
-  const char **Keys() const;
-  V *Values() const;
+  KVPair *Entries() const;
 
  private:
   typedef typename
@@ -91,29 +90,17 @@ std::size_t STLHashtable<V>::Size() const {
 }
  
 template<class V>
-const char **STLHashtable<V>::Keys() const {
+typename Hashtable<V>::KVPair *STLHashtable<V>::Entries() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  const char **keys = new const char *[table_.size() + 1];
+  KVPair *pairs = new KVPair[table_.size() + 1];
   int i = 0;
   for (typename CStrHashtable::const_iterator it = table_.begin();
       it != table_.end(); ++it, ++i) {
-    keys[i] = it->first;
+    pairs[i].key = it->first;
+    pairs[i].value = it->second;
   }
-  keys[i] = NULL;
-  return keys;
-}
-
-template<class V>
-V *STLHashtable<V>::Values() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  V *values = new V[table_.size() + 1];
-  int i = 0;
-  for (typename CStrHashtable::const_iterator it = table_.begin();
-      it != table_.end(); ++it, ++i) {
-    values[i] = it->second;
-  }
-  values[i] = V(NULL);
-  return values;
+  pairs[i] = {NULL, NULL};
+  return pairs;
 }
 
 #endif // VM_PERSISTENCE_BENCHMARK_STL_HASHTABLE_H_
