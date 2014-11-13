@@ -16,20 +16,19 @@ VMDatabase::~VMDatabase() {
 const char **VMDatabase::Read(const char *key, const char **fields) {
   CStrHashtable *v = store_->Get(key);
   if (v && !fields) {
-    const char **keys = v->Keys();
-    const char **values = v->Values();
-    const int len = ArrayLength(keys);
-    assert(len == ArrayLength(values));
-
+    Hashtable<const char *>::KVPair *entries = v->Entries();
+    const int len = v->Size();
     const char **pairs = new const char *[2 * len + 1];
-    for (int i = 0; i < len; ++i) {
-      pairs[i] = keys[i];
-      pairs[len + i] = values[i];
+
+    int i = 0;
+    for (Hashtable<const char *>::KVPair *it = entries; it->key; ++it, ++i) {
+      pairs[i] = it->key;
+      pairs[len + i] = it->value;
     }
+    assert(i == len);
     pairs[2 * len] = NULL;
 
-    delete keys;
-    delete values;
+    delete entries;
     return pairs;
   } else {
     const int len = v ? ArrayLength(fields) : 0;
@@ -84,14 +83,14 @@ int VMDatabase::Delete(const char *key) {
   if (pair.key) {
     delete pair.key;
 
-    const char **keys = pair.value->Keys();
-    const char **values = pair.value->Values();
-    int num = FreeElements(keys);
+    Hashtable<const char *>::KVPair *entries = pair.value->Entries();
+    int num = 0;
+    for (Hashtable<const char *>::KVPair *it = entries; it->key; ++it, ++num) {
+      delete it->key;
+      delete it->value;
+    }
     assert(num == pair.value->Size());
-    num = FreeElements(values);
-    assert(num == pair.value->Size());
-    delete keys;
-    delete values;
+    delete entries;
 
     delete pair.value;
     return 1;
