@@ -1,7 +1,10 @@
 #include <cstring>
 #include <iostream>
 
-#ifdef TBB
+#if defined(SVM)
+#include "svm_hashtable.h"
+#define HASHTABLE SVMHashtable
+#elif defined(TBB)
 #include "tbb_hashtable.h"
 #define HASHTABLE TBBHashtable
 #else
@@ -11,8 +14,24 @@
 
 using namespace std;
 
+#define SVM_SIZE (0x100000000)
+
 int main() {
+
+#ifdef SVM
+  int err = sitevm_init();
+  assert(!err);
+
+  sitevm_seg_t* segment = sitevm_seg_create(NULL, SVM_SIZE);
+
+  err = sitevm_enter();
+  assert(!err);
+  err = sitevm_open(segment);
+  assert(!err);
+  Hashtable<const char *> *table = new HASHTABLE<const char *>(segment);
+#else
   Hashtable<const char *> *table = new HASHTABLE<const char *>;
+#endif
 
   // five allocations
   char *ka = new char[2]; strcpy(ka, "1");
