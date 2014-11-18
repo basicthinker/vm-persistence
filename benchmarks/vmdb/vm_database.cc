@@ -3,10 +3,17 @@
 
 #include "vm_database.h"
 #include <cassert>
+
+#ifdef TBB
+#include "tbb_hashtable.h"
+#define HASHTABLE TBBHashtable
+#else
 #include "stl_hashtable.h"
+#define HASHTABLE STLHashtable
+#endif
 
 VMDatabase::VMDatabase() {
-  store_ = new STLHashtable<CStrHashtable *>;
+  store_ = new HASHTABLE<CStrHashtable *>;
 }
 
 VMDatabase::~VMDatabase() {
@@ -65,7 +72,7 @@ int VMDatabase::Insert(const char *key,
     const char **fields, const char **values) {
   CStrHashtable *v = store_->Get(key);
   if (!v) {
-    v = new STLHashtable<const char *>;
+    v = new HASHTABLE<const char *>;
     store_->Insert(StoreCopy(key), v);
   }
   const int len = ArrayLength(fields);

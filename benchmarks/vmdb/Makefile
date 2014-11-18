@@ -11,15 +11,20 @@ YCSB_PKG = com.yahoo.ycsb.db
 YCSB_DIR = ../ycsb/vmdb/src/main/java/com/yahoo/ycsb/db/
 
 UNAME_S = $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
+ifeq ($(UNAME_S), Linux)
 	JDK_DIR = /usr/lib/jvm/java-7-openjdk-amd64
 	INCLUDES += -I$(JDK_DIR)/include -I$(JDK_DIR)/include/linux
 	LOPT = -shared
 	LIB_SUFFIX = so
-else ifeq ($(UNAME_S),Darwin)
+else ifeq ($(UNAME_S), Darwin)
 	INCLUDES += -I/System/Library/Frameworks/JavaVM.framework/Headers
 	LOPT = -dynamiclib
 	LIB_SUFFIX = jnilib
+endif
+
+DEFINE = $(if $(HASHTABLE), -D$(HASHTABLE))
+ifeq ($(HASHTABLE), TBB)
+	LOPT += -ltbb
 endif
 
 all:	test_swig compile
@@ -38,7 +43,7 @@ test_swig:	$(INTERFACE).h $(wildcard *.swg)
 	swig -java -c++ -package test -outdir ./test $(INTERFACE).swg
 
 compile:	$(INTERFACE).h $(SRCS)
-	$(CXX) $(CFLAGS) $(INTERFACE)_wrap.cxx $(SRCS) $(INCLUDES)
+	$(CXX) $(CFLAGS) $(INTERFACE)_wrap.cxx $(SRCS) $(INCLUDES) $(DEFINE)
 	$(CXX) $(LOPT) $(OBJS) $(INTERFACE)_wrap.o -o libvmdb.$(LIB_SUFFIX)
 	
 clean:

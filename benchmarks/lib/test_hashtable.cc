@@ -1,12 +1,18 @@
 #include <cstring>
 #include <iostream>
 
+#ifdef TBB
+#include "tbb_hashtable.h"
+#define HASHTABLE TBBHashtable
+#else
 #include "stl_hashtable.h"
+#define HASHTABLE STLHashtable
+#endif
 
 using namespace std;
 
 int main() {
-  Hashtable<const char *> *table = new STLHashtable<const char *>;
+  Hashtable<const char *> *table = new HASHTABLE<const char *>;
 
   // five allocations
   char *ka = new char[2]; strcpy(ka, "1");
