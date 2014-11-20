@@ -34,25 +34,29 @@ int main() {
 #endif
 
   // five allocations
-  char *ka = new char[2]; strcpy(ka, "1");
-  char *va = new char[2]; strcpy(va, "2");
-  char *kb = new char[2]; strcpy(kb, "3");
-  char *vb = new char[2]; strcpy(vb, "4");
-  char *c = new char[2]; strcpy(c, "c");
+  char *ka = new char[6]; strcpy(LoadString(ka), "1"); StoreHash(ka);
+  char *va = new char[6]; strcpy(LoadString(va), "2"); ZeroHash(va);
+  char *kb = new char[6]; strcpy(LoadString(kb), "3"); StoreHash(kb);
+  char *vb = new char[6]; strcpy(LoadString(vb), "4"); ZeroHash(vb);
+  char *c = new char[6]; strcpy(LoadString(c), "c"); ZeroHash(c);
+
+  char three[6]; strcpy(LoadString(three), "3"); StoreHash(three);
 
   cout << table->Insert(ka, va) << endl;
   cout << !table->Insert(ka, vb) << endl;
   cout << table->Insert(kb, vb) << endl;
-  cout << (strcmp(table->Get("3"), "4") == 0) << endl;
+  const char *value = table->Get(three);
+  cout << (!LoadHash(value) && strcmp(LoadString(value), "4") == 0) << endl;
 
   delete table->Update(ka, c);	// frees va
-  cout << (strcmp(table->Get(ka), "c") == 0) << endl;
+  value = table->Get(ka);
+  cout << (!LoadHash(value) && strcmp(LoadString(value), "c") == 0) << endl;
 
   Hashtable<const char *>::KVPair pair = table->Remove(kb);
   delete pair.key;		// frees kb
   delete pair.value;		// frees vb
-  cout << (table->Remove("3").key == NULL) << endl;
-  cout << (table->Get("3") == NULL) << endl;
+  cout << (table->Remove(three).key == NULL) << endl;
+  cout << (table->Get(three) == NULL) << endl;
 
   Hashtable<const char *>::KVPair *pairs = table->Entries();
   int num = 0;

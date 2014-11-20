@@ -4,27 +4,23 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_STL_HASHTABLE_H_
 #define VM_PERSISTENCE_BENCHMARK_STL_HASHTABLE_H_
 
+#include "hashtable.h"
+
 #include <cstring>
 #include <unordered_map>
 #include <mutex>
-
-#include "hashtable.h"
+#include "hash_string.h"
 
 struct CStrHash {
-  std::size_t operator()(const char *str) const {
-    // sdbm
-    size_t hash = 0;
-    size_t c;
-    while ((c = *str++) != '\0') {
-      hash = c + (hash << 6) + (hash << 16) - hash;
-    }
-    return hash;
+  inline std::size_t operator()(const char *str) const {
+    return LoadHash(str);
   }
 };
 
 struct CStrEqual {
   bool operator()(const char *a, const char *b) const {
-    return strcmp(a, b) == 0;
+    if (LoadHash(a) != LoadHash(b)) return false;
+    return strcmp(LoadString(a), LoadString(b)) == 0;
   }
 };
 

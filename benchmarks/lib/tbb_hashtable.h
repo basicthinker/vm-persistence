@@ -4,24 +4,21 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_TBB_HASHTABLE_H_
 #define VM_PERSISTENCE_BENCHMARK_TBB_HASHTABLE_H_
 
+#include "hashtable.h"
+
 #include <cstring>
 #include "tbb/concurrent_hash_map.h"
 
-#include "hashtable.h"
+#include "hash_string.h"
 
 struct CStrHashCompare {
-  size_t hash(const char *str) const {
-    // sdbm
-    size_t hash = 0;
-    size_t c;
-    while ((c = *str++) != '\0') {
-      hash = c + (hash << 6) + (hash << 16) - hash;
-    }
-    return hash;
+  inline size_t hash(const char *str) const {
+    return LoadHash(str);
   }
 
-  bool equal(const char *a, const char *b) const {
-    return strcmp(a, b) == 0;
+  inline bool equal(const char *a, const char *b) const {
+    if (LoadHash(a) != LoadHash(b)) return false;
+    return strcmp(LoadString(a), LoadString(b)) == 0;
   }
 };
 

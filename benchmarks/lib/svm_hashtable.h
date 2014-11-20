@@ -11,21 +11,17 @@
 #include "sitevm/sitevm.h"
 #include "sitevm/sitevm_malloc.h"
 
+#include "hash_string.h"
 #include "svm_allocator.h"
 
 struct CStrHashCompare {
-  size_t hash(const char *str) const {
-    // sdbm
-    size_t hash = 0;
-    size_t c;
-    while ((c = *str++) != '\0') {
-      hash = c + (hash << 6) + (hash << 16) - hash;
-    }
-    return hash;
+  inline size_t hash(const char *str) const {
+    return LoadHash(str);
   }
 
-  bool equal(const char *a, const char *b) const {
-    return strcmp(a, b) == 0;
+  inline bool equal(const char *a, const char *b) const {
+    if (LoadHash(a) != LoadHash(b)) return false;
+    return strcmp(LoadString(a), LoadString(b)) == 0;
   }
 };
 
