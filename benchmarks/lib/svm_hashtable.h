@@ -41,8 +41,8 @@ class SVMHashtable : public Hashtable<V> {
  public:
   typedef typename Hashtable<V>::KVPair KVPair;
   SVMHashtable() : svm_(NULL) { }
-  SVMHashtable(sitevm_seg_t *svm) : svm_(svm) { }
-  void set_svm(sitevm_seg_t *svm) { svm_ = svm; }
+  SVMHashtable(sitevm_seg_t *svm) { sitevm_update(svm_ = svm); }
+  void set_svm(sitevm_seg_t *svm) { sitevm_update(svm_ = svm); }
 
   V Get(const char *key) const; ///< Returns NULL if the key is not found
   bool Insert(const char *key, V value);
@@ -61,45 +61,47 @@ class SVMHashtable : public Hashtable<V> {
 
 template<class V>
 V SVMHashtable<V>::Get(const char *key) const {
-  sitevm_update(svm_);
   typename CStrHashtable::accessor result;
-  if (!table_.find(result, key)) return NULL;
-  sitevm_commit(svm_);
+  do {
+    if (!table_.find(result, key)) return NULL;
+  } while (sitevm_commit_and_update(svm_));
   return result->second;
 }
 
 template<class V>
 bool SVMHashtable<V>::Insert(const char *key, V value) {
-  if (!key) return false;
-  sitevm_update(svm_);
-  bool result = table_.insert(std::make_pair(key, value));
-  sitevm_commit(svm_);
+  bool result = key;
+  if (!result) return false;
+  do {
+    result = table_.insert(std::make_pair(key, value));
+  } while (sitevm_commit_and_update(svm_));
   return result;
 }
 
 template<class V>
 V SVMHashtable<V>::Update(const char *key, V value) {
-  sitevm_update(svm_);
-
-  typename CStrHashtable::accessor result;
-  if (!table_.find(result, key)) return NULL;
-  V old = result->second;
-  result->second = value;
-
-  sitevm_commit(svm_);
+  V old;
+  do {
+    typename CStrHashtable::accessor result;
+    if (!table_.find(result, key)) return NULL;
+    old = result->second;
+    result->second = value;
+  } while (sitevm_commit_and_update(svm_));
   return old;
 }
 
 template<class V>
 typename Hashtable<V>::KVPair SVMHashtable<V>::Remove(const char *key) {
-  sitevm_update(svm_);
-
-  typename CStrHashtable::accessor result;
-  if (!table_.find(result, key)) return {NULL, NULL};
-  KVPair pair = {result->first, result->second};
-  table_.erase(result);
-
-  sitevm_commit(svm_);
+  KVPair pair;
+  do {
+    typename CStrHashtable::accessor result;
+    if (table_.find(result, key)) {
+      pair = {result->first, result->second};
+      table_.erase(result);
+    } else {
+      pair = {NULL, NULL};
+    }
+  } while (sitevm_commit_and_update(svm_));
   return pair;
 }
 
@@ -110,18 +112,18 @@ std::size_t SVMHashtable<V>::Size() const {
 
 template<class V>
 typename Hashtable<V>::KVPair *SVMHashtable<V>::Entries() const {
-  sitevm_update(svm_);
-
-  KVPair *pairs = new KVPair[table_.size() + 1];
-  int i = 0;
-  for (typename CStrHashtable::const_iterator it = table_.begin();
-      it != table_.end(); ++it, ++i) {
-    pairs[i].key = it->first;
-    pairs[i].value = it->second;
-  }
-  pairs[i] = {NULL, NULL};
-
-  sitevm_update(svm_);
+  KVPair *pairs = NULL;
+  do {
+    if (pairs) delete[] pairs;
+    pairs = new KVPair[table_.size() + 1];
+    int i = 0;
+    for (typename CStrHashtable::const_iterator it = table_.begin();
+        it != table_.end(); ++it, ++i) {
+      pairs[i].key = it->first;
+      pairs[i].value = it->second;
+    }
+    pairs[i] = {NULL, NULL};
+  } while (sitevm_commit_and_update(svm_));
   return pairs;
 }
 
