@@ -8,9 +8,10 @@
 
 #include <cstring>
 #include "tbb/concurrent_hash_map.h"
-#include "tbb/tbb_allocator.h"
 #include "sitevm/sitevm.h"
 #include "sitevm/sitevm_malloc.h"
+
+#include "svm_allocator.h"
 
 struct CStrHashCompare {
   size_t hash(const char *str) const {
@@ -28,21 +29,12 @@ struct CStrHashCompare {
   }
 };
 
-template<typename T>
-class SVMAllocator : public tbb::tbb_allocator<T> {
- public:
-  SVMAllocator(sitevm_seg_t *svm) : svm_(svm) { }
- private:
-  sitevm_seg_t *svm_;
-};
-
 template<class V>
 class SVMHashtable : public Hashtable<V> {
  public:
   typedef typename Hashtable<V>::KVPair KVPair;
-  SVMHashtable() : svm_(NULL) { }
+
   SVMHashtable(sitevm_seg_t *svm) { sitevm_update(svm_ = svm); }
-  void set_svm(sitevm_seg_t *svm) { sitevm_update(svm_ = svm); }
 
   V Get(const char *key) const; ///< Returns NULL if the key is not found
   bool Insert(const char *key, V value);
@@ -54,9 +46,10 @@ class SVMHashtable : public Hashtable<V> {
 
  private:
   typedef typename
-      tbb::concurrent_hash_map<const char *, V, CStrHashCompare> CStrHashtable;
-  CStrHashtable table_;
+      tbb::concurrent_hash_map<const char *, V, CStrHashCompare>
+      CStrHashtable;
   sitevm_seg_t *svm_;
+  CStrHashtable table_;
 };
 
 template<class V>
