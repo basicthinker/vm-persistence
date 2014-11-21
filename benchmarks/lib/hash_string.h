@@ -45,8 +45,8 @@ inline size_t HashStringLength(const char *str) {
 
 inline char *NewZeroHashString(const char *str) {
   assert(str);
-  const int len = strlen(str);
-  const int hstr_len = sizeof(uint32_t) + len;
+  const size_t len = strlen(str);
+  const size_t hstr_len = sizeof(uint32_t) + len;
   char *hstr = (char *)MALLOC(hstr_len + 1);
   memcpy(LoadString(hstr), str, len);
   hstr[hstr_len] = '\0';
@@ -56,8 +56,8 @@ inline char *NewZeroHashString(const char *str) {
 
 inline char *NewHashString(const char *str) {
   assert(str);
-  const int len = strlen(str);
-  const int hstr_len = sizeof(uint32_t) + len;
+  const size_t len = strlen(str);
+  const size_t hstr_len = sizeof(uint32_t) + len;
   char *hstr = (char *)MALLOC(hstr_len + 1);
   memcpy(LoadString(hstr), str, len);
   hstr[hstr_len] = '\0';

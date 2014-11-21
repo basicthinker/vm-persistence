@@ -8,43 +8,43 @@
 #include <unordered_map>
 
 #include "hash_string.h"
-
-template<class V>
-struct StringHashtablePair {
-  const char *key;
-  V value;
-};
+#include "hashtable.h"
 
 template<class V>
 class StringHashtable {
  public:
-  typedef StringHashtablePair<V> KVPair;
+  typedef HashtableKVPair<V> KVPair;
+
+  StringHashtable(Hashtable<V> *ht) : table_(ht) { }
 
   ///< Returns NULL if not found
-  virtual V Get(char *key) const {
+  V Get(char *key) const {
     StoreHash(key);
-    return NULL;
+    return table_->Get(key);
   }
 
   virtual bool Insert(char *key, V value) {
     StoreHash(key);
-    return true;
+    return table_->Insert(key, value);
   }
 
   virtual V Update(char *key, V value) {
     StoreHash(key);
-    return NULL;
+    return table_->Update(key, value);
   }
 
   virtual KVPair Remove(char *key) {
     StoreHash(key);
-    return {NULL, NULL};
+    return table_->Remove(key);
   }
 
-  virtual std::size_t Size() const = 0;
-  virtual KVPair *Entries() const = 0;
+  std::size_t Size() const { return table_->Size(); }
+  KVPair *Entries() const { return table_->Entries(); }
 
   virtual ~StringHashtable() { }
+
+ private:
+  Hashtable<V> * const table_;
 };
 
 #endif // VM_PERSISTENCE_BENCHMARK_STRING_HASHTABLE_H_

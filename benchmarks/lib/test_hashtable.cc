@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "mem_allocator.h"
+#include "string_hashtable.h"
 
 #if defined(SVM)
 #include "svm_hashtable.h"
@@ -30,9 +31,9 @@ int main() {
   assert(!err);
   err = sitevm_open(segment);
   assert(!err);
-  StringHashtable<const char *> *table = new HASHTABLE<const char *>(segment);
+  StringHashtable<const char *> table(new HASHTABLE<const char *>(segment));
 #else
-  StringHashtable<const char *> *table = new HASHTABLE<const char *>;
+  StringHashtable<const char *> table(new HASHTABLE<const char *>);
 #endif
 
   // five allocations
@@ -44,23 +45,23 @@ int main() {
 
   char three[6]; strcpy(LoadString(three), "3");;
 
-  cout << table->Insert(ka, va) << endl;
-  cout << !table->Insert(ka, vb) << endl;
-  cout << table->Insert(kb, vb) << endl;
-  const char *value = table->Get(three);
+  cout << table.Insert(ka, va) << endl;
+  cout << !table.Insert(ka, vb) << endl;
+  cout << table.Insert(kb, vb) << endl;
+  const char *value = table.Get(three);
   cout << (!LoadHash(value) && strcmp(LoadString(value), "4") == 0) << endl;
 
-  FREE(table->Update(ka, c));	// FREEs va
-  value = table->Get(ka);
+  FREE(table.Update(ka, c));	// FREEs va
+  value = table.Get(ka);
   cout << (!LoadHash(value) && strcmp(LoadString(value), "c") == 0) << endl;
 
-  StringHashtable<const char *>::KVPair pair = table->Remove(kb);
+  StringHashtable<const char *>::KVPair pair = table.Remove(kb);
   FREE(pair.key);		// FREEs kb
   FREE(pair.value);		// FREEs vb
-  cout << (table->Remove(three).key == NULL) << endl;
-  cout << (table->Get(three) == NULL) << endl;
+  cout << (table.Remove(three).key == NULL) << endl;
+  cout << (table.Get(three) == NULL) << endl;
 
-  StringHashtable<const char *>::KVPair *pairs = table->Entries();
+  StringHashtable<const char *>::KVPair *pairs = table.Entries();
   int num = 0;
   for (StringHashtable<const char *>::KVPair *it = pairs; it->key; ++it) {
     FREE(it->key);
