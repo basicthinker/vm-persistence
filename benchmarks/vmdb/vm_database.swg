@@ -4,6 +4,7 @@
 
 %{
 #include "vm_database.h"
+#include "hash_string.h"
 %}
 
 %include "vm_database.h"

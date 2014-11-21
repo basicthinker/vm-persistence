@@ -12,18 +12,17 @@ class VMDatabase {
   VMDatabase();
   ~VMDatabase();
 
-  const char **Read(const char *key, const char **fields);
-  int Update(const char *key, const char **fields, const char **values);
-  int Insert(const char *key, const char **fields, const char **values);
-  int Delete(const char *key);
+  const char **Read(char *key, char **fields);
+  int Update(char *key, char **fields, const char **values);
+  int Insert(char *key, char **fields, const char **values);
+  int Delete(char *key);
 
  private:
   typedef Hashtable<const char *> CStrHashtable;
   Hashtable<CStrHashtable *> *store_;
 
-  const char *StoreCopy(const char *str);
-  int ArrayLength(const char **array);
-  int FreeElements(const char **array);
+  int ArrayLength(char **array);
+  int FreeElements(char **array);
 };
 
 #endif // VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_
