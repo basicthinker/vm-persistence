@@ -43,15 +43,9 @@ class SVMAllocator {
     typedef SVMAllocator<U> other;
   };
 
-  SVMAllocator(sitevm_seg_t *svm) throw() : svm_(svm) { }
-  SVMAllocator(const SVMAllocator &other) throw() {
-    svm_ = other.svm();
-  }
-  template<typename U> SVMAllocator(const SVMAllocator<U> &other) throw() {
-    svm_ = other.svm();
-  }
-
-  sitevm_seg_t *svm() const { return svm_; }
+  SVMAllocator() throw() { }
+  SVMAllocator(const SVMAllocator &other) throw() { }
+  template<typename U> SVMAllocator(const SVMAllocator<U> &other) throw() { }
 
   pointer address(reference x) const { return &x; }
   const_pointer address(const_reference x) const { return &x; }
@@ -91,9 +85,6 @@ class SVMAllocator {
 
   //! Destroy value at location pointed to by p.
   void destroy(pointer p) { p->~value_type(); }
-
- private:
-  sitevm_seg_t *svm_;
 };
 
 //! Analogous to std::allocator<void>, as defined in ISO C++ Standard, Section 20.4.1
@@ -111,12 +102,12 @@ class SVMAllocator<void> {
 
 template<typename T, typename U>
 inline bool operator==(const SVMAllocator<T> &a, const SVMAllocator<U> &b) {
-  return a.svm() == b.svm();
+  return true;
 }
 
 template<typename T, typename U>
 inline bool operator!=(const SVMAllocator<T> &a, const SVMAllocator<U> &b) {
-  return !(a == b);
+  return false;
 }
 
 #endif // VM_PERSISTENCE_BENCHMARK_SVM_ALLOCATOR_H_

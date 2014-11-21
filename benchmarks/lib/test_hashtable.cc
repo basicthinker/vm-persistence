@@ -26,10 +26,11 @@ int main() {
   assert(!err);
 
   sitevm_seg_t* segment = sitevm_seg_create(NULL, SVM_SIZE);
+  sitevm_malloc::init_sitevm_malloc(segment);
 
   err = sitevm_enter();
   assert(!err);
-  err = sitevm_open(segment);
+  err = sitevm_open_and_update(segment);
   assert(!err);
   StringHashtable<const char *> table(new HASHTABLE<const char *>(segment));
 #else
