@@ -8,7 +8,6 @@
 
 #include <cstring>
 #include <unordered_map>
-#include <mutex>
 #include "hash_string.h"
 
 struct CStrHash {
@@ -24,7 +23,7 @@ struct CStrEqual {
   }
 };
 
-template<class V>
+template<class V, class A = std::allocator<std::pair<const char *, V>>>
 class STLHashtable : public Hashtable<V> {
  public:
   typedef typename Hashtable<V>::KVPair KVPair;
@@ -38,30 +37,26 @@ class STLHashtable : public Hashtable<V> {
   KVPair *Entries() const;
 
  private:
-  typedef typename
-      std::unordered_map<const char *, V, CStrHash, CStrEqual> CStrHashtable;
+  typedef std::unordered_map<const char *, V, CStrHash, CStrEqual, A>
+      CStrHashtable;
   CStrHashtable table_;
-  mutable std::mutex mutex_;
 };
 
-template<class V>
-V STLHashtable<V>::Get(const char *key) const {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+V STLHashtable<V, A>::Get(const char *key) const {
   typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
   else return pos->second;
 }
 
-template<class V>
-bool STLHashtable<V>::Insert(const char *key, V value) {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+bool STLHashtable<V, A>::Insert(const char *key, V value) {
   if (!key) return false;
   return table_.insert(std::make_pair(key, value)).second;
 }
 
-template<class V>
-V STLHashtable<V>::Update(const char *key, V value) {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+V STLHashtable<V, A>::Update(const char *key, V value) {
   typename CStrHashtable::iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
   V old = pos->second;
@@ -69,9 +64,8 @@ V STLHashtable<V>::Update(const char *key, V value) {
   return old;
 }
 
-template<class V>
-typename Hashtable<V>::KVPair STLHashtable<V>::Remove(const char *key) {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+typename Hashtable<V>::KVPair STLHashtable<V, A>::Remove(const char *key) {
   typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return {NULL, NULL};
   KVPair pair = {pos->first, pos->second};
@@ -79,15 +73,13 @@ typename Hashtable<V>::KVPair STLHashtable<V>::Remove(const char *key) {
   return pair;
 }
 
-template<class V>
-std::size_t STLHashtable<V>::Size() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+std::size_t STLHashtable<V, A>::Size() const {
   return table_.size();
 }
  
-template<class V>
-typename Hashtable<V>::KVPair *STLHashtable<V>::Entries() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+template<class V, class A>
+typename Hashtable<V>::KVPair *STLHashtable<V, A>::Entries() const {
   KVPair *pairs = new KVPair[table_.size() + 1];
   int i = 0;
   for (typename CStrHashtable::const_iterator it = table_.begin();

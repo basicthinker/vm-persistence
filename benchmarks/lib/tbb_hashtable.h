@@ -37,7 +37,7 @@ class TBBHashtable : public Hashtable<V> {
 
  private:
   typedef typename
-      tbb::concurrent_hash_map<const char *, V, CStrHashCompare> CStrHashtable;
+      tbb::concurrent_hash_map<char *, V, CStrHashCompare> CStrHashtable;
   CStrHashtable table_;
 };
 

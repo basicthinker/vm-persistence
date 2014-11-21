@@ -11,8 +11,8 @@
 #include "tbb_hashtable.h"
 #define HASHTABLE TBBHashtable
 #else
-#include "stl_hashtable.h"
-#define HASHTABLE STLHashtable
+#include "lock_hashtable.h"
+#define HASHTABLE LockHashtable
 #endif
 
 using namespace std;
