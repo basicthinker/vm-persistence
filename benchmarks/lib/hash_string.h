@@ -4,9 +4,13 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_HASH_STRING_H_
 #define VM_PERSISTENCE_BENCHMARK_HASH_STRING_H_
 
+#include <cstdlib>
 #include <cstring>
+#include <cassert>
 
-uint32_t SDBMHash(const char *str) {
+#include "mem_allocator.h"
+
+inline uint32_t SDBMHash(const char *str) {
   uint32_t hash = 0;
   uint32_t c;
   while ((c = *str++) != '\0') {
@@ -37,6 +41,28 @@ inline const char *LoadString(const char *hstr) {
 
 inline size_t HashStringLength(const char *str) {
   return strlen(str) + sizeof(uint32_t);
+}
+
+inline char *NewZeroHashString(const char *str) {
+  assert(str);
+  const int len = strlen(str);
+  const int hstr_len = sizeof(uint32_t) + len;
+  char *hstr = (char *)MALLOC(hstr_len + 1);
+  memcpy(LoadString(hstr), str, len);
+  hstr[hstr_len] = '\0';
+  ZeroHash(hstr);
+  return hstr;
+}
+
+inline char *NewHashString(const char *str) {
+  assert(str);
+  const int len = strlen(str);
+  const int hstr_len = sizeof(uint32_t) + len;
+  char *hstr = (char *)MALLOC(hstr_len + 1);
+  memcpy(LoadString(hstr), str, len);
+  hstr[hstr_len] = '\0';
+  StoreHash(hstr);
+  return hstr;
 }
 
 #endif // VM_PERSISTENCE_BENCHMARK_HASH_STRING_H_

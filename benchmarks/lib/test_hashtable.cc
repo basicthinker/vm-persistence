@@ -1,6 +1,8 @@
 #include <cstring>
 #include <iostream>
 
+#include "mem_allocator.h"
+
 #if defined(SVM)
 #include "svm_hashtable.h"
 #define HASHTABLE SVMHashtable
@@ -28,19 +30,19 @@ int main() {
   assert(!err);
   err = sitevm_open(segment);
   assert(!err);
-  Hashtable<const char *> *table = new HASHTABLE<const char *>(segment);
+  StringHashtable<const char *> *table = new HASHTABLE<const char *>(segment);
 #else
-  Hashtable<const char *> *table = new HASHTABLE<const char *>;
+  StringHashtable<const char *> *table = new HASHTABLE<const char *>;
 #endif
 
   // five allocations
-  char *ka = new char[6]; strcpy(LoadString(ka), "1"); StoreHash(ka);
-  char *va = new char[6]; strcpy(LoadString(va), "2"); ZeroHash(va);
-  char *kb = new char[6]; strcpy(LoadString(kb), "3"); StoreHash(kb);
-  char *vb = new char[6]; strcpy(LoadString(vb), "4"); ZeroHash(vb);
-  char *c = new char[6]; strcpy(LoadString(c), "c"); ZeroHash(c);
+  char *ka = NewZeroHashString("1");
+  char *va = NewZeroHashString("2");
+  char *kb = NewZeroHashString("3");
+  char *vb = NewZeroHashString("4");
+  char *c = NewZeroHashString("c");
 
-  char three[6]; strcpy(LoadString(three), "3"); StoreHash(three);
+  char three[6]; strcpy(LoadString(three), "3");;
 
   cout << table->Insert(ka, va) << endl;
   cout << !table->Insert(ka, vb) << endl;
@@ -48,21 +50,21 @@ int main() {
   const char *value = table->Get(three);
   cout << (!LoadHash(value) && strcmp(LoadString(value), "4") == 0) << endl;
 
-  delete table->Update(ka, c);	// frees va
+  FREE(table->Update(ka, c));	// FREEs va
   value = table->Get(ka);
   cout << (!LoadHash(value) && strcmp(LoadString(value), "c") == 0) << endl;
 
-  Hashtable<const char *>::KVPair pair = table->Remove(kb);
-  delete pair.key;		// frees kb
-  delete pair.value;		// frees vb
+  StringHashtable<const char *>::KVPair pair = table->Remove(kb);
+  FREE(pair.key);		// FREEs kb
+  FREE(pair.value);		// FREEs vb
   cout << (table->Remove(three).key == NULL) << endl;
   cout << (table->Get(three) == NULL) << endl;
 
-  Hashtable<const char *>::KVPair *pairs = table->Entries();
+  StringHashtable<const char *>::KVPair *pairs = table->Entries();
   int num = 0;
-  for (Hashtable<const char *>::KVPair *it = pairs; it->key; ++it) {
-    delete it->key;
-    delete it->value;
+  for (StringHashtable<const char *>::KVPair *it = pairs; it->key; ++it) {
+    FREE(it->key);
+    FREE(it->value);
     ++num;
   }
   delete pairs; 

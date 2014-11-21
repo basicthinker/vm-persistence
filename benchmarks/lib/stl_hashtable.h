@@ -4,7 +4,7 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_STL_HASHTABLE_H_
 #define VM_PERSISTENCE_BENCHMARK_STL_HASHTABLE_H_
 
-#include "hashtable.h"
+#include "string_hashtable.h"
 
 #include <cstring>
 #include <unordered_map>
@@ -12,27 +12,27 @@
 #include "hash_string.h"
 
 struct CStrHash {
-  inline std::size_t operator()(const char *str) const {
+  inline size_t operator()(const char *str) const {
     return LoadHash(str);
   }
 };
 
 struct CStrEqual {
-  bool operator()(const char *a, const char *b) const {
+  inline bool operator()(const char *a, const char *b) const {
     if (LoadHash(a) != LoadHash(b)) return false;
     return strcmp(LoadString(a), LoadString(b)) == 0;
   }
 };
 
 template<class V>
-class STLHashtable : public Hashtable<V> {
+class STLHashtable : public StringHashtable<V> {
  public:
-  typedef typename Hashtable<V>::KVPair KVPair;
+  typedef typename StringHashtable<V>::KVPair KVPair;
 
-  V Get(const char *key) const; ///< Returns NULL if the key is not found
-  bool Insert(const char *key, V value);
-  V Update(const char *key, V value);
-  KVPair Remove(const char *key);
+  V Get(char *key) const; ///< Returns NULL if the key is not found
+  bool Insert(char *key, V value);
+  V Update(char *key, V value);
+  KVPair Remove(char *key);
 
   std::size_t Size() const;
   KVPair *Entries() const;
@@ -45,7 +45,7 @@ class STLHashtable : public Hashtable<V> {
 };
 
 template<class V>
-V STLHashtable<V>::Get(const char *key) const {
+V STLHashtable<V>::Get(char *key) const {
   std::lock_guard<std::mutex> lock(mutex_);
   typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
@@ -53,14 +53,14 @@ V STLHashtable<V>::Get(const char *key) const {
 }
 
 template<class V>
-bool STLHashtable<V>::Insert(const char *key, V value) {
+bool STLHashtable<V>::Insert(char *key, V value) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!key) return false;
   return table_.insert(std::make_pair(key, value)).second;
 }
 
 template<class V>
-V STLHashtable<V>::Update(const char *key, V value) {
+V STLHashtable<V>::Update(char *key, V value) {
   std::lock_guard<std::mutex> lock(mutex_);
   typename CStrHashtable::iterator pos = table_.find(key);
   if (pos == table_.end()) return NULL;
@@ -70,7 +70,7 @@ V STLHashtable<V>::Update(const char *key, V value) {
 }
 
 template<class V>
-typename Hashtable<V>::KVPair STLHashtable<V>::Remove(const char *key) {
+typename StringHashtable<V>::KVPair STLHashtable<V>::Remove(char *key) {
   std::lock_guard<std::mutex> lock(mutex_);
   typename CStrHashtable::const_iterator pos = table_.find(key);
   if (pos == table_.end()) return {NULL, NULL};
@@ -86,7 +86,7 @@ std::size_t STLHashtable<V>::Size() const {
 }
  
 template<class V>
-typename Hashtable<V>::KVPair *STLHashtable<V>::Entries() const {
+typename StringHashtable<V>::KVPair *STLHashtable<V>::Entries() const {
   std::lock_guard<std::mutex> lock(mutex_);
   KVPair *pairs = new KVPair[table_.size() + 1];
   int i = 0;
