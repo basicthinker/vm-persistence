@@ -1,7 +1,12 @@
 CXX = c++
 CFLAGS = -std=c++11 -Wall
-DEFINE = -DSVM 
-LIBS = -ltbb -lsitevm -lpthread -ldune
+
+DEFINE = $(if $(HASHTABLE), -D$(HASHTABLE))
+ifeq ($(HASHTABLE), SVM)
+        LIBS = -lsitevm -lpthread -ldune
+else ifeq ($(HASHTABLE), TBB)
+        LIBS = -ltbb
+endif
 
 all:	test
 
