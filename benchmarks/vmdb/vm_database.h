@@ -5,7 +5,7 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_
 #define VM_PERSISTENCE_BENCHMARK_YCSB_VM_DATABASE_H_
 
-#include "hashtable.h"
+#include "string_hashtable.h"
 
 class VMDatabase {
  public:
@@ -17,9 +17,15 @@ class VMDatabase {
   int Insert(char *key, char **fields, const char **values);
   int Delete(char *key);
 
+  void InitClientThread();
+
  private:
-  typedef Hashtable<const char *> CStrHashtable;
-  Hashtable<CStrHashtable *> *store_;
+  typedef StringHashtable<const char *> SubHashtable;
+
+#ifdef SVM
+  sitevm_seg_t* svm_;
+#endif
+  StringHashtable<SubHashtable *> *store_;
 
   int ArrayLength(char **array);
   int FreeElements(char **array);

@@ -12,8 +12,8 @@ YCSB_DIR = ../ycsb/vmdb/src/main/java/com/yahoo/ycsb/db/
 
 UNAME_S = $(shell uname -s)
 ifeq ($(UNAME_S), Linux)
-	JDK_DIR = /usr/lib/jvm/java-7-openjdk-amd64
-	INCLUDES += -I$(JDK_DIR)/include -I$(JDK_DIR)/include/linux
+	JDK_INCLUDE = /usr/lib/jvm/java-7-openjdk-amd64/include
+	INCLUDES += -I$(JDK_INCLUDE) -I$(JDK_INCLUDE)/linux
 	LOPT = -shared
 	LIB_SUFFIX = so
 else ifeq ($(UNAME_S), Darwin)
@@ -23,8 +23,10 @@ else ifeq ($(UNAME_S), Darwin)
 endif
 
 DEFINE = $(if $(HASHTABLE), -D$(HASHTABLE))
-ifeq ($(HASHTABLE), TBB)
-	LOPT += -ltbb
+ifeq ($(HASHTABLE), SVM)
+	LIBS = -lsitevm -lpthread -ldune 
+else ifeq ($(HASHTABLE), TBB)
+	LIBS = -ltbb
 endif
 
 all:	test_swig compile
@@ -44,7 +46,7 @@ test_swig:	$(INTERFACE).h $(wildcard *.swg)
 
 compile:	$(INTERFACE).h $(SRCS)
 	$(CXX) $(CFLAGS) $(INTERFACE)_wrap.cxx $(SRCS) $(INCLUDES) $(DEFINE)
-	$(CXX) $(LOPT) $(OBJS) $(INTERFACE)_wrap.o -o libvmdb.$(LIB_SUFFIX)
+	$(CXX) $(LOPT) -o libvmdb.$(LIB_SUFFIX) $(OBJS) $(INTERFACE)_wrap.o $(LIBS)
 	
 clean:
 	$(RM) *.cxx *.o *.$(LIB_SUFFIX) *.java *.class

@@ -13,6 +13,8 @@ class Test {
   public static void main(String argv[]) {
     VMDatabase vmdb = new VMDatabase();
 
+    vmdb.InitClientThread();
+
     String table_key = "table+key";
     String[] results;
     results = vmdb.Read(table_key, new String[]{"1", "3"});

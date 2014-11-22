@@ -5,16 +5,50 @@
 
 #include <cassert>
 
-#ifdef TBB
+#if defined(SVM)
+
+#include "svm_hashtable.h"
+#define HASHTABLE SVMHashtable
+#define SVM_SIZE (0x100000000)
+
+#elif defined(TBB)
+
 #include "tbb_hashtable.h"
 #define HASHTABLE TBBHashtable
+
 #else
+
 #include "lock_hashtable.h"
 #define HASHTABLE LockHashtable
+
 #endif
 
+void VMDatabase::InitClientThread() {
+#ifdef SVM
+  int err = sitevm_enter();
+  assert(!err);
+  err = sitevm_open_and_update(svm_);
+  assert(!err);
+#endif
+}
+
 VMDatabase::VMDatabase() {
-  store_ = new HASHTABLE<CStrHashtable *>;
+  HASHTABLE<SubHashtable *> *ht;
+
+#ifdef SVM
+  int err = sitevm_init();
+  assert(!err);
+
+  svm_ = sitevm_seg_create(NULL, SVM_SIZE);
+  sitevm_malloc::init_sitevm_malloc(svm_);
+
+  void *addr = MALLOC(sizeof(HASHTABLE<SubHashtable *>));
+  ht = new(addr) HASHTABLE<SubHashtable *>(svm_);
+#else
+  ht = new HASHTABLE<SubHashtable *>;
+#endif
+
+  store_ = new StringHashtable<SubHashtable *>(ht);
 }
 
 VMDatabase::~VMDatabase() {
@@ -22,7 +56,7 @@ VMDatabase::~VMDatabase() {
 }
 
 const char **VMDatabase::Read(char *key, char **fields) {
-  CStrHashtable *v = store_->Get(key);
+  SubHashtable *v = store_->Get(key);
   if (v && !fields) {
     Hashtable<const char *>::KVPair *entries = v->Entries();
     const int len = v->Size();
@@ -52,7 +86,7 @@ const char **VMDatabase::Read(char *key, char **fields) {
 }
 
 int VMDatabase::Update(char *key, char **fields, const char **values) {
-  CStrHashtable *v = store_->Get(key);
+  SubHashtable *v = store_->Get(key);
   if (!v) return 0;
   const int len = ArrayLength(fields);
   int num = 0;
@@ -70,9 +104,16 @@ int VMDatabase::Update(char *key, char **fields, const char **values) {
 }
 
 int VMDatabase::Insert(char *key, char **fields, const char **values) {
-  CStrHashtable *v = store_->Get(key);
+  SubHashtable *v = store_->Get(key);
   if (!v) {
-    v = new HASHTABLE<const char *>;
+#ifdef SVM
+    void *inner = MALLOC(sizeof(HASHTABLE<const char *>));
+    HASHTABLE<const char *> *ht = new(inner) HASHTABLE<const char *>(svm_);
+    void *outer = MALLOC(sizeof(SubHashtable));
+    v = new(outer) SubHashtable(ht);
+#else
+    v = new SubHashtable(new HASHTABLE<const char *>);
+#endif
     store_->Insert(NewZeroHashString(LoadString(key)), v);
   }
   const int len = ArrayLength(fields);
@@ -86,7 +127,7 @@ int VMDatabase::Insert(char *key, char **fields, const char **values) {
 }
 
 int VMDatabase::Delete(char *key) {
-  Hashtable<CStrHashtable *>::KVPair pair = store_->Remove(key);
+  StringHashtable<SubHashtable *>::KVPair pair = store_->Remove(key);
   if (pair.key) {
     FREE(pair.key);
 
@@ -99,8 +140,16 @@ int VMDatabase::Delete(char *key) {
     }
     assert(num == pair.value->Size());
     delete entries;
+#ifdef SVM
+    pair.value->Instance()->~Hashtable<const char *>();
+    FREE(pair.value->Instance());
 
+    pair.value->~SubHashtable();
     FREE(pair.value);
+#else
+    delete pair.value->Instance();
+    delete pair.value;
+#endif
     return 1;
   }
   return 0;
