@@ -23,17 +23,17 @@ class StringHashtable {
     return table_->Get(key);
   }
 
-  virtual bool Insert(char *key, V value) {
+  bool Insert(char *key, V value) {
     StoreHash(key);
     return table_->Insert(key, value);
   }
 
-  virtual V Update(char *key, V value) {
+  V Update(char *key, V value) {
     StoreHash(key);
     return table_->Update(key, value);
   }
 
-  virtual KVPair Remove(char *key) {
+  KVPair Remove(char *key) {
     StoreHash(key);
     return table_->Remove(key);
   }
@@ -41,7 +41,8 @@ class StringHashtable {
   std::size_t Size() const { return table_->Size(); }
   KVPair *Entries() const { return table_->Entries(); }
 
-  virtual ~StringHashtable() { }
+  Hashtable<V> *Instance() const { return table_; }
+  ~StringHashtable() { }
 
  private:
   Hashtable<V> * const table_;

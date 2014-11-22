@@ -71,5 +71,7 @@ int main() {
   }
   delete pairs; 
   cout << (num == 1) << endl;
+
+  delete table.Instance();
 }
 
