@@ -6,9 +6,7 @@
 
 #include "hashtable.h"
 
-#include <cstring>
 #include "tbb/concurrent_hash_map.h"
-
 #include "hash_string.h"
 
 struct CStrHashCompare {

@@ -4,9 +4,6 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_STRING_HASHTABLE_H_
 #define VM_PERSISTENCE_BENCHMARK_STRING_HASHTABLE_H_
 
-#include <cstring>
-#include <unordered_map>
-
 #include "hash_string.h"
 #include "hashtable.h"
 

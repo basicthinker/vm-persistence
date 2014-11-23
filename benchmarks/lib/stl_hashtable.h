@@ -6,7 +6,6 @@
 
 #include "hashtable.h"
 
-#include <cstring>
 #include <unordered_map>
 #include "hash_string.h"
 

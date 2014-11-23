@@ -4,9 +4,6 @@
 #ifndef VM_PERSISTENCE_BENCHMARK_HASHTABLE_H_
 #define VM_PERSISTENCE_BENCHMARK_HASHTABLE_H_
 
-#include <cstring>
-#include <unordered_map>
-
 template<class V>
 struct HashtableKVPair {
   const char *key;
