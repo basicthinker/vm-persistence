@@ -42,7 +42,7 @@ struct hlist_node {
 };
 
 template<class P, class M>
-size_t offsetof(const M P::*member)
+size_t offset_of(const M P::*member)
 {
   return (size_t) &(reinterpret_cast<P*>(0)->*member);
 }
@@ -50,7 +50,7 @@ size_t offsetof(const M P::*member)
 template<class P, class M>
 P* container_of(M* ptr, const M P::*member)
 {
-  return (P*)((char*)ptr - offsetof(member));
+  return (P*)((char*)ptr - offset_of(member));
 }
 
 /*

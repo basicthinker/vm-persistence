@@ -46,7 +46,8 @@ struct hlist_pair {
 template <typename K, typename V, class HashEqual>
 class hashtable {
  public:
-  hashtable(size_t num_buckets = 11, float max_load_factor = 1.0);
+  hashtable(sitevm_seg_t *svm,
+      size_t num_buckets = 11, float max_load_factor = 1.0);
   float max_load_factor() const { return max_load_factor_; }
   void set_max_load_factor(float f) { max_load_factor_ = f; }
   size_t bucket_count() const { return bucket_count_; }
@@ -74,6 +75,8 @@ class hashtable {
   hlist_bucket *buckets_;
   size_t bucket_count_;
   HashEqual hash_equal_;
+
+  sitevm_seg_t *svm_;
 };
 
 // Accessory functions
@@ -143,10 +146,12 @@ size_t clear_all(hlist_bucket *bkts, size_t n) {
 // Implementation of hashtable
 
 template <typename K, typename V, class HashEqual>
-hashtable<K, V, HashEqual>::hashtable(size_t n, float f) {
-  bucket_count_ = n;
-  buckets_ = new_buckets(bucket_count_);
-  max_load_factor_ = f;
+hashtable<K, V, HashEqual>::hashtable(sitevm_seg_t *svm, size_t n, float f) {
+  do {
+    bucket_count_ = n;
+    buckets_ = new_buckets(bucket_count_);
+    max_load_factor_ = f;
+  } while (sitevm_commit_and_update(svm_ = svm));
 }
 
 template <typename K, typename V, class HashEqual>
@@ -159,7 +164,7 @@ bool hashtable<K, V, HashEqual>::find(const K &key, V &value) const {
       value = pair->value;
       ok = true;
     }
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return ok;
 }
 
@@ -175,7 +180,7 @@ bool hashtable<K, V, HashEqual>::update(const K &key, V &value) {
       value = old;
       ok = true;
     }
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return ok;
 }
 
@@ -195,7 +200,7 @@ bool hashtable<K, V, HashEqual>::insert(const K &key, const V &value) {
     if (factor >= max_load_factor_) {
       rehash((bucket_count_ << 1) + 1);
     }
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return ok;
 }
 
@@ -211,7 +216,7 @@ bool hashtable<K, V, HashEqual>::erase(const K &key, std::pair<K, V> &erased) {
       erase_from(bkt, pair);
       ok = true;
     }
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return ok;
 }
 
@@ -231,7 +236,7 @@ std::pair<K, V> *hashtable<K, V, HashEqual>::entries(size_t &num) const {
         ++pos;
       }
     }
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return pairs;
 }
 
@@ -240,7 +245,7 @@ size_t hashtable<K, V, HashEqual>::clear() {
   size_t num;
   do {
     num = clear_all<K, V>(buckets_, bucket_count_);
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return num;
 }
 
@@ -249,7 +254,7 @@ hashtable<K, V, HashEqual>::~hashtable() {
   do {
     clear_all<K, V>(buckets_, bucket_count_);
     FREE(buckets_);
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
 }
 
 template <typename K, typename V, class HashEqual>
@@ -270,7 +275,7 @@ void hashtable<K, V, HashEqual>::rehash(size_t n) {
     FREE(buckets_);
     buckets_ = bkts;
     bucket_count_ = n;
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
 }
 
 template <typename K, typename V, class HashEqual>
@@ -278,7 +283,7 @@ size_t hashtable<K, V, HashEqual>::size() const {
   size_t num;
   do {
     num = size_sum(buckets_, bucket_count_);
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return num;
 }
 
@@ -287,7 +292,7 @@ float hashtable<K, V, HashEqual>::load_factor() const {
   float factor;
   do {
     factor = size_sum(buckets_, bucket_count_) / (float)bucket_count_;
-  } while (false);
+  } while (sitevm_commit_and_update(svm_));
   return factor;
 }
 
