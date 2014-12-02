@@ -8,7 +8,7 @@
 #include <cstring>
 #include <cassert>
 
-#include "mem_allocator.h"
+#include "slib/mem_allocator.h"
 
 inline uint32_t SDBMHash(const char *str) {
   uint32_t hash = 0;

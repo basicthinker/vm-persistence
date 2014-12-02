@@ -36,7 +36,7 @@ class StringHashtable {
   }
 
   std::size_t Size() const { return table_->Size(); }
-  KVPair *Entries() const { return table_->Entries(); }
+  KVPair *Entries(size_t &n) const { return table_->Entries(n); }
 
   Hashtable<V> *Instance() const { return table_; }
   ~StringHashtable() { }

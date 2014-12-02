@@ -1,15 +1,21 @@
 #include <cstring>
 #include <iostream>
 
-#include "mem_allocator.h"
+#include "slib/mem_allocator.h"
 #include "string_hashtable.h"
 
-#if defined(SVM)
+#if defined(SLIB)
+#define HASHTABLE SLibHashtable
+#include "slib_hashtable.h"
+
+#elif defined(SVM)
 #include "svm_hashtable.h"
 #define HASHTABLE SVMHashtable
+
 #elif defined(TBB)
 #include "tbb_hashtable.h"
 #define HASHTABLE TBBHashtable
+
 #else
 #include "lock_hashtable.h"
 #define HASHTABLE LockHashtable
@@ -62,12 +68,11 @@ int main() {
   cout << (table.Remove(three).key == NULL) << endl;
   cout << (table.Get(three) == NULL) << endl;
 
-  StringHashtable<const char *>::KVPair *pairs = table.Entries();
-  int num = 0;
-  for (StringHashtable<const char *>::KVPair *it = pairs; it->key; ++it) {
-    FREE(it->key);
-    FREE(it->value);
-    ++num;
+  size_t num;
+  StringHashtable<const char *>::KVPair *pairs = table.Entries(num);
+  for (int i = 0; i < num; ++i) {
+    FREE(pairs[i].key);
+    FREE(pairs[i].value);
   }
   delete pairs; 
   cout << (num == 1) << endl;

@@ -21,7 +21,7 @@ class Hashtable {
   virtual KVPair Remove(const char *key) = 0;
 
   virtual std::size_t Size() const = 0;
-  virtual KVPair *Entries() const = 0;
+  virtual KVPair *Entries(size_t &n) const = 0;
 
   virtual ~Hashtable() { }
 };
