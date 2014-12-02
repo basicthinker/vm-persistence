@@ -31,7 +31,7 @@ class TBBHashtable : public Hashtable<V> {
   KVPair Remove(const char *key);
 
   size_t Size() const;
-  KVPair *Entries() const;
+  KVPair *Entries(size_t &n) const;
 
  private:
   typedef typename
@@ -76,15 +76,14 @@ std::size_t TBBHashtable<V>::Size() const {
 }
 
 template<class V>
-typename Hashtable<V>::KVPair *TBBHashtable<V>::Entries() const {
-  KVPair *pairs = new KVPair[table_.size() + 1];
+typename Hashtable<V>::KVPair *TBBHashtable<V>::Entries(size_t &n) const {
+  KVPair *pairs = new KVPair[n = table_.size()];
   int i = 0;
   for (typename CStrHashtable::const_iterator it = table_.begin();
       it != table_.end(); ++it, ++i) {
     pairs[i].key = it->first;
     pairs[i].value = it->second;
   }
-  pairs[i] = {NULL, NULL};
   return pairs;
 }
 

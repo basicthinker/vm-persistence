@@ -19,7 +19,7 @@ class LockHashtable : public STLHashtable<V> {
   KVPair Remove(const char *key);
 
   std::size_t Size() const;
-  KVPair *Entries() const;
+  KVPair *Entries(size_t &n) const;
 
  private:
   mutable std::mutex mutex_;
@@ -56,9 +56,9 @@ std::size_t LockHashtable<V>::Size() const {
 }
  
 template<class V>
-typename Hashtable<V>::KVPair *LockHashtable<V>::Entries() const {
+typename Hashtable<V>::KVPair *LockHashtable<V>::Entries(size_t &n) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return STLHashtable<V>::Entries();
+  return STLHashtable<V>::Entries(n);
 }
 
 #endif // VM_PERSISTENCE_BENCHMARK_LOCK_HASHTABLE_H_

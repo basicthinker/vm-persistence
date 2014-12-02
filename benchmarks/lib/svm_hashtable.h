@@ -24,7 +24,7 @@ class SVMHashtable
   KVPair Remove(const char *key);
 
   size_t Size() const;
-  KVPair *Entries() const;
+  KVPair *Entries(size_t &n) const;
 
  private:
   sitevm_seg_t *svm_;
@@ -76,10 +76,10 @@ std::size_t SVMHashtable<V>::Size() const {
 }
 
 template<class V>
-typename Hashtable<V>::KVPair *SVMHashtable<V>::Entries() const {
+typename Hashtable<V>::KVPair *SVMHashtable<V>::Entries(size_t &n) const {
   KVPair *pairs;
   do {
-    pairs = STLHashtable<V, Allocator>::Entries(); 
+    pairs = STLHashtable<V, Allocator>::Entries(n); 
   } while (sitevm_commit_and_update(svm_));
   return pairs;
 }
