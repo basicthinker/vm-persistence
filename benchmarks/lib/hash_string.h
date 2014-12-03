@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
+#include <cstdint>
 
 #include "slib/mem_allocator.h"
 

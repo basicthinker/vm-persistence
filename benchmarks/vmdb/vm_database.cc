@@ -58,17 +58,15 @@ VMDatabase::~VMDatabase() {
 const char **VMDatabase::Read(char *key, char **fields) {
   SubHashtable *v = store_->Get(key);
   if (v && !fields) {
-    Hashtable<const char *>::KVPair *entries = v->Entries();
-    const int len = v->Size();
+    size_t len = 0;
+    Hashtable<const char *>::KVPair *entries = v->Entries(len);
     const char **pairs = new const char *[2 * len + 1];
 
-    int i = 0;
-    for (Hashtable<const char *>::KVPair *it = entries; it->key; ++it, ++i) {
-      pairs[i] = it->key;
-      pairs[len + i] = it->value;
-      assert(!LoadHash(it->value));
+    for (int i = 0; i < len; ++i) {
+      pairs[i] = entries[i].key;
+      pairs[len + i] = entries[i].value;
+      assert(!LoadHash(entries[i].value));
     }
-    assert(i == len);
     pairs[2 * len] = NULL;
 
     delete entries;
@@ -131,12 +129,12 @@ int VMDatabase::Delete(char *key) {
   if (pair.key) {
     FREE(pair.key);
 
-    Hashtable<const char *>::KVPair *entries = pair.value->Entries();
     size_t num = 0;
-    for (Hashtable<const char *>::KVPair *it = entries; it->key; ++it, ++num) {
-      FREE(it->key);
-      assert(!LoadHash(it->value));
-      FREE(it->value);
+    Hashtable<const char *>::KVPair *entries = pair.value->Entries(num);
+    for (int i = 0; i < num; ++i) {
+      FREE(entries[i].key);
+      assert(!LoadHash(entries[i].value));
+      FREE(entries[i].value);
     }
     assert(num == pair.value->Size());
     delete entries;

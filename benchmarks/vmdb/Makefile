@@ -1,18 +1,17 @@
-CXX = c++
+CXX = clang++
 CFLAGS = -fpic -Wall -c -std=c++11
 
 INTERFACE = vm_database
-DEP_PROJ = ../lib
 SRCS = $(wildcard *.cc)
 OBJS = $(SRCS:.cc=.o)
-INCLUDES = -I$(DEP_PROJ)
+INCLUDES = -I../lib -I../../
 
 YCSB_PKG = com.yahoo.ycsb.db
 YCSB_DIR = ../ycsb/vmdb/src/main/java/com/yahoo/ycsb/db/
 
 UNAME_S = $(shell uname -s)
 ifeq ($(UNAME_S), Linux)
-	JDK_INCLUDE = /usr/lib/jvm/java-7-openjdk-amd64/include
+	JDK_INCLUDE = $(JAVA_HOME)/include
 	INCLUDES += -I$(JDK_INCLUDE) -I$(JDK_INCLUDE)/linux
 	LOPT = -shared
 	LIB_SUFFIX = so
@@ -22,10 +21,10 @@ else ifeq ($(UNAME_S), Darwin)
 	LIB_SUFFIX = jnilib
 endif
 
-DEFINE = $(if $(HASHTABLE), -D$(HASHTABLE))
-ifeq ($(HASHTABLE), SVM)
-	LIBS = -lsitevm -lpthread -ldune 
-else ifeq ($(HASHTABLE), TBB)
+DEFINE = $(if $(HT), -D$(HT))
+ifeq ($(HT), SVM)
+	LIBS = -ldune -lpthread -lsitevm 
+else ifeq ($(HT), TBB)
 	LIBS = -ltbb
 endif
 
