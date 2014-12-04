@@ -17,6 +17,7 @@ class SVMHashtable
   typedef SVMAllocator<std::pair<const char *, V>> Allocator;
 
   SVMHashtable(sitevm_seg_t *svm) { sitevm_commit_and_update(svm_ = svm); }
+  sitevm_seg_t *svm() const { return svm_; }
 
   V Get(const char *key) const; ///< Returns NULL if the key is not found
   bool Insert(const char *key, V value);

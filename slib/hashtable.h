@@ -51,6 +51,7 @@ class hashtable {
   float max_load_factor() const { return max_load_factor_; }
   void set_max_load_factor(float f) { max_load_factor_ = f; }
   size_t bucket_count() const { return bucket_count_; }
+  sitevm_seg_t *svm() const { return svm_; }
   
   bool find(const K &key, V &value) const;
   bool update(const K &key, V &value);

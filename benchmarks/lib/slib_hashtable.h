@@ -26,6 +26,7 @@ class SLibHashtable : public Hashtable<V> {
   typedef typename Hashtable<V>::KVPair KVPair;
 
   SLibHashtable(sitevm_seg_t *svm) : table_(svm) { }
+  sitevm_seg_t *svm() const { return table_.svm(); }
 
   V Get(const char *key) const; ///< Returns NULL if the key is not found
   bool Insert(const char *key, V value);

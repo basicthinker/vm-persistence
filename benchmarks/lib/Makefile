@@ -9,13 +9,21 @@ ifeq ($(HT), SLIB)
 else ifeq ($(HT), SVM)
         LIBS = -lsitevm -lpthread -ldune
 else ifeq ($(HT), TBB)
-        LIBS = -ltbb
+        LIBS = -ltbb -lpthread
+else
+	HT = STL
+	LIBS = -lpthread
 endif
 
-all:	test
+all:	test eval
 
 test:	test_hashtable.cc $(wildcard *.h)
-	$(CXX) $(CFLAGS) $(DEFINE) $(INCLUDES) test_hashtable.cc $(LIBS) -o test.out
+	$(CXX) $(CFLAGS) $(DEFINE) $(INCLUDES) test_hashtable.cc $(LIBS) \
+		-o test.out
+
+eval:	eval_hashtable.cc $(wildcard *.h)
+	$(CXX) $(CFLAGS) $(DEFINE) $(INCLUDES) eval_hashtable.cc $(LIBS) \
+		-o eval-$(HT).out
 
 clean:
 	$(RM) *.out
