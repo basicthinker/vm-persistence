@@ -11,8 +11,8 @@
 
 #include <cstdint>
 #include <cassert>
-#include "list.h"
-#include "mem_allocator.h"
+#include "slib/list.h"
+#include "slib/mem_allocator.h"
 
 namespace slib {
 
@@ -55,7 +55,8 @@ class hashtable {
   bool update(const K &key, V &value);
   bool insert(const K &key, const V &value);
   bool erase(const K &key, std::pair<K, V> &erased);
-  std::vector<std::pair<K, V>> entries(const K &key, std::size_t n) const;
+  std::vector<std::pair<K, V>> entries(const K *key = NULL,
+                                       std::size_t n = -1) const;
   std::size_t clear();
   void rehash(std::size_t buckets);
   
@@ -196,10 +197,11 @@ bool hashtable<K, V, HashEqual>::erase(const K &key, std::pair<K, V> &erased) {
 
 template <typename K, typename V, class HashEqual>
 std::vector<std::pair<K, V>> hashtable<K, V, HashEqual>::entries(
-    const K &key, std::size_t num) const {
+    const K *key, std::size_t num) const {
   std::vector<std::pair<K, V>> pairs;
-  hlist_bucket *bkt = get_bucket(key);
-  hlist_pair<K, V> *pos = find_in<K, V>(bkt, key, hash_equal_); 
+  hlist_bucket *bkt = key ? get_bucket(*key) : buckets_;
+  hlist_pair<K, V> *pos = key ? find_in<K, V>(bkt, *key, hash_equal_) :
+      container_of(bkt->head.first, &hlist_pair<K, V>::node);
   if (!pos) return pairs;
 
   hlist_bucket *bkt_end = buckets_ + bucket_count_;
