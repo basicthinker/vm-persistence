@@ -8,6 +8,8 @@
 #ifndef _CPP_LINUX_LIST_H
 #define _CPP_LINUX_LIST_H
 
+#include <assert.h>
+
 /*
  * Architectures might want to move the poison pointer offset
  * into some well-recognized area such as 0xdead000000000000,
@@ -80,7 +82,6 @@ static inline void INIT_LIST_HEAD(struct list_head *list)
  * This is only for internal list manipulation where we know
  * the prev/next entries already!
  */
-#ifndef CONFIG_DEBUG_LIST
 static inline void __list_add(struct list_head *ne,
                               struct list_head *prev,
                               struct list_head *next)
@@ -90,11 +91,6 @@ static inline void __list_add(struct list_head *ne,
   ne->prev = prev;
   prev->next = ne;
 }
-#else
-extern void __list_add(struct list_head *ne,
-                       struct list_head *prev,
-                       struct list_head *next);
-#endif
 
 /**
  * list_add - add a new entry
@@ -130,8 +126,13 @@ static inline void list_add_tail(struct list_head *ne, struct list_head *head)
  * This is only for internal list manipulation where we know
  * the prev/next entries already!
  */
-static inline void __list_del(struct list_head * prev, struct list_head * next)
+static inline void __list_del(struct list_head *prev, struct list_head *next)
 {
+  // Prevents write skew
+  assert(prev->next == next->prev);
+  prev->next->prev = NULL;
+  prev->next->next = NULL;
+
   next->prev = prev;
   prev->next = next;
 }
@@ -142,7 +143,6 @@ static inline void __list_del(struct list_head * prev, struct list_head * next)
  * Note: list_empty() on entry does not return true after this, the entry is
  * in an undefined state.
  */
-#ifndef CONFIG_DEBUG_LIST
 static inline void __list_del_entry(struct list_head *entry)
 {
   __list_del(entry->prev, entry->next);
@@ -154,10 +154,6 @@ static inline void list_del(struct list_head *entry)
   entry->next = (struct list_head *)LIST_POISON1;
   entry->prev = (struct list_head *)LIST_POISON2;
 }
-#else
-extern void __list_del_entry(struct list_head *entry);
-extern void list_del(struct list_head *entry);
-#endif
 
 /**
  * list_replace - replace old entry by new one
@@ -173,6 +169,8 @@ static inline void list_replace(struct list_head *old,
   ne->next->prev = ne;
   ne->prev = old->prev;
   ne->prev->next = ne;
+
+  old->prev = old->next = NULL; // Prevents write skew
 }
 
 static inline void list_replace_init(struct list_head *old,
@@ -458,6 +456,9 @@ static inline void __hlist_del(struct hlist_node *n)
   *pprev = next;
   if (next)
     next->pprev = pprev;
+  // Prevents write skew
+  n->next = NULL;
+  n->pprev = NULL;
 }
 
 static inline void hlist_del(struct hlist_node *n)
