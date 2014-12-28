@@ -107,7 +107,7 @@ bool CheckCounts(vector<int> &counts, int value);
 int main(int argc, const char *argv[]) {
 
   if (argc != 4) {
-    cout << "USAGE: " << argv[0] << "#threads #records #operations" << endl;
+    cout << "USAGE: " << argv[0] << " #threads #records #operations" << endl;
     return EINVAL;
   }
 

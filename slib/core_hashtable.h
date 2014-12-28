@@ -46,9 +46,9 @@ struct hlist_pair {
 template <typename K, typename V, class HashEqual>
 class hashtable {
  public:
-  hashtable(std::size_t num_buckets = 11, float max_load_factor = 1.0);
-  float max_load_factor() const { return max_load_factor_; }
-  void set_max_load_factor(float f) { max_load_factor_ = f; }
+  hashtable(std::size_t num_buckets = 11, std::size_t local_load_factor = 4);
+  size_t local_load_factor() const { return local_load_factor_; }
+  void set_local_load_factor(std::size_t f) { local_load_factor_ = f; }
   std::size_t bucket_count() const { return bucket_count_; }
   
   bool find(const K &key, V &value) const;
@@ -71,7 +71,7 @@ class hashtable {
     return buckets_ + hash_equal_.hash(key) % bucket_count_;
   }
 
-  float max_load_factor_;
+  std::size_t local_load_factor_;
   hlist_bucket *buckets_;
   std::size_t bucket_count_;
   HashEqual hash_equal_;
@@ -144,10 +144,10 @@ std::size_t clear_all(hlist_bucket *bkts, std::size_t n) {
 // Implementation of hashtable
 
 template <typename K, typename V, class HashEqual>
-hashtable<K, V, HashEqual>::hashtable(std::size_t n, float f) {
+hashtable<K, V, HashEqual>::hashtable(std::size_t n, std::size_t f) {
   bucket_count_ = n;
   buckets_ = new_buckets(bucket_count_);
-  max_load_factor_ = f;
+  local_load_factor_ = f;
 }
 
 template <typename K, typename V, class HashEqual>
@@ -177,8 +177,7 @@ bool hashtable<K, V, HashEqual>::insert(const K &key, const V &value) {
   if (pair) return false;
   insert_to(bkt, key, value);
 
-  double factor = size_sum(buckets_, bucket_count_) / (float)bucket_count_;
-  if (factor >= max_load_factor_) {
+  if (bkt->size >= local_load_factor_) {
     rehash((bucket_count_ << 1) + 1);
   }
   return true;
