@@ -2,23 +2,23 @@
 //  hashtable.h
 //  vm_persistence
 //
-//  Created by Jinglei Ren on 11/29/14.
+//  Created by Jinglei Ren on 12/24/14.
 //  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
 //
 
-#ifndef VM_PERSISTENCE_SLIB_HASHTABLE_H_
-#define VM_PERSISTENCE_SLIB_HASHTABLE_H_
+#ifndef VM_PERSISTENCE_CORE_HASHTABLE_H_
+#define VM_PERSISTENCE_CORE_HASHTABLE_H_
 
+#include <cstdint>
 #include <cassert>
-#include "list.h"
-#include "mem_allocator.h"
-#include "sitevm/sitevm.h"
+#include "slib/list.h"
+#include "slib/mem_allocator.h"
 
 namespace slib {
 
 template<typename T>
 struct HashEqual {
-  virtual size_t hash(const T &key) const {
+  virtual uint64_t hash(const T &key) const {
     std::hash<T> hasher;
     return hasher(key);
   }
@@ -32,7 +32,7 @@ struct HashEqual {
 };
 
 struct hlist_bucket {
-  size_t size;
+  std::size_t size;
   struct hlist_head head;
 };
 
@@ -46,23 +46,22 @@ struct hlist_pair {
 template <typename K, typename V, class HashEqual>
 class hashtable {
  public:
-  hashtable(sitevm_seg_t *svm,
-      size_t num_buckets = 11, float max_load_factor = 1.0);
-  float max_load_factor() const { return max_load_factor_; }
-  void set_max_load_factor(float f) { max_load_factor_ = f; }
-  size_t bucket_count() const { return bucket_count_; }
-  sitevm_seg_t *svm() const { return svm_; }
+  hashtable(std::size_t num_buckets = 11, std::size_t local_load_factor = 4);
+  size_t local_load_factor() const { return local_load_factor_; }
+  void set_local_load_factor(std::size_t f) { local_load_factor_ = f; }
+  std::size_t bucket_count() const { return bucket_count_; }
   
   bool find(const K &key, V &value) const;
   bool update(const K &key, V &value);
   bool insert(const K &key, const V &value);
   bool erase(const K &key, std::pair<K, V> &erased);
-  std::pair<K, V> *entries(size_t &num) const;
-  size_t clear();
-  void rehash(size_t buckets);
+  std::vector<std::pair<K, V>> entries(const K *key = NULL,
+                                       std::size_t n = -1) const;
+  std::size_t clear();
+  void rehash(std::size_t buckets);
   
-  size_t size() const;
-  size_t bucket_size(size_t i) const { return buckets_[i].size; }
+  std::size_t size() const;
+  std::size_t bucket_size(size_t i) const { return buckets_[i].size; }
   float load_factor() const;
   
   ~hashtable();
@@ -72,28 +71,26 @@ class hashtable {
     return buckets_ + hash_equal_.hash(key) % bucket_count_;
   }
 
-  float max_load_factor_;
+  std::size_t local_load_factor_;
   hlist_bucket *buckets_;
-  size_t bucket_count_;
+  std::size_t bucket_count_;
   HashEqual hash_equal_;
-
-  sitevm_seg_t *svm_;
 };
 
 // Accessory functions
 
-hlist_bucket *new_buckets(size_t n) {
+inline hlist_bucket *new_buckets(std::size_t n) {
   hlist_bucket *bkts = (hlist_bucket *)MALLOC(n * sizeof(hlist_bucket));
-  for (int i = 0; i < n; ++i) {
+  for (std::size_t i = 0; i < n; ++i) {
     bkts[i].size = 0;
     INIT_HLIST_HEAD(&bkts[i].head);
   }
   return bkts;
 }
 
-size_t size_sum(const hlist_bucket *bkts, size_t n) {
-  size_t count = 0;
-  for (int i = 0; i < n; ++i) {
+inline std::size_t size_sum(const hlist_bucket *bkts, std::size_t n) {
+  std::size_t count = 0;
+  for (std::size_t i = 0; i < n; ++i) {
     count += bkts[i].size;
   }
   return count;
@@ -130,8 +127,8 @@ void erase_from(hlist_bucket *bkt, hlist_pair<K, V> *pair) {
 }
 
 template <typename K, typename V>
-size_t clear_all(hlist_bucket *bkts, size_t n) {
-  size_t num = 0;
+std::size_t clear_all(hlist_bucket *bkts, std::size_t n) {
+  std::size_t num = 0;
   for (int i = 0; i < n; ++i) {
     hlist_node *pos, *next;
     hlist_for_each_safe(pos, next, &bkts[i].head) {
@@ -147,157 +144,118 @@ size_t clear_all(hlist_bucket *bkts, size_t n) {
 // Implementation of hashtable
 
 template <typename K, typename V, class HashEqual>
-hashtable<K, V, HashEqual>::hashtable(sitevm_seg_t *svm, size_t n, float f) {
-  do {
-    bucket_count_ = n;
-    buckets_ = new_buckets(bucket_count_);
-    max_load_factor_ = f;
-  } while (sitevm_commit_and_update(svm_ = svm));
+hashtable<K, V, HashEqual>::hashtable(std::size_t n, std::size_t f) {
+  bucket_count_ = n;
+  buckets_ = new_buckets(bucket_count_);
+  local_load_factor_ = f;
 }
 
 template <typename K, typename V, class HashEqual>
 bool hashtable<K, V, HashEqual>::find(const K &key, V &value) const {
-  bool ok = false;
-  do {
-    hlist_bucket *bkt = get_bucket(key);
-    hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
-    if (pair) {
-      value = pair->value;
-      ok = true;
-    }
-  } while (sitevm_commit_and_update(svm_));
-  return ok;
+  hlist_bucket *bkt = get_bucket(key);
+  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  if (!pair) return false;
+  value = pair->value;
+  return true;
 }
 
 template <typename K, typename V, class HashEqual>
 bool hashtable<K, V, HashEqual>::update(const K &key, V &value) {
-  bool ok = false;
-  do {
-    hlist_bucket *bkt = get_bucket(key);
-    hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
-    if (pair) {
-      V old = pair->value;
-      pair->value = value;
-      value = old;
-      ok = true;
-    }
-  } while (sitevm_commit_and_update(svm_));
-  return ok;
+  hlist_bucket *bkt = get_bucket(key);
+  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  if (!pair) return false;
+  V old = pair->value;
+  pair->value = value;
+  value = old;
+  return true;
 }
 
 template <typename K, typename V, class HashEqual>
 bool hashtable<K, V, HashEqual>::insert(const K &key, const V &value) {
-  bool ok;
-  do {
-    ok = false;
-    hlist_bucket *bkt = get_bucket(key);
-    hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_); 
-    if (!pair) {
-      insert_to(bkt, key, value);
-      ok = true;
-    }
+  hlist_bucket *bkt = get_bucket(key);
+  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_); 
+  if (pair) return false;
+  insert_to(bkt, key, value);
 
-    double factor = size_sum(buckets_, bucket_count_) / (float)bucket_count_;
-    if (factor >= max_load_factor_) {
-      rehash((bucket_count_ << 1) + 1);
-    }
-  } while (sitevm_commit_and_update(svm_));
-  return ok;
+  if (bkt->size >= local_load_factor_) {
+    rehash((bucket_count_ << 1) + 1);
+  }
+  return true;
 }
 
 template <typename K, typename V, class HashEqual>
 bool hashtable<K, V, HashEqual>::erase(const K &key, std::pair<K, V> &erased) {
-  bool ok = false;
-  do {
-    hlist_bucket *bkt = get_bucket(key);
-    hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
-    if (pair) {
-      erased.first = pair->key;
-      erased.second = pair->value;
-      erase_from(bkt, pair);
-      ok = true;
-    }
-  } while (sitevm_commit_and_update(svm_));
-  return ok;
+  hlist_bucket *bkt = get_bucket(key);
+  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  if (!pair) return false;
+  erased.first = pair->key;
+  erased.second = pair->value;
+  erase_from(bkt, pair);
+  return true;
 }
 
 template <typename K, typename V, class HashEqual>
-std::pair<K, V> *hashtable<K, V, HashEqual>::entries(size_t &num) const {
-  std::pair<K, V> *pairs = NULL;
-  do {
-    num  = size_sum(buckets_, bucket_count_);
-    pairs = (std::pair<K, V> *)realloc(pairs, num * sizeof(std::pair<K, V>));
-    std::pair<K, V> *pos = pairs;
-    for (int i = 0; i < bucket_count_; ++i) {
-      hlist_node *node;
-      hlist_for_each(node, &buckets_[i].head) {
-        hlist_pair<K, V> *pair = container_of(node, &hlist_pair<K, V>::node);
-        pos->first = pair->key;
-        pos->second = pair->value;
-        ++pos;
-      }
+std::vector<std::pair<K, V>> hashtable<K, V, HashEqual>::entries(
+    const K *key, std::size_t num) const {
+  std::vector<std::pair<K, V>> pairs;
+  hlist_bucket *bkt = key ? get_bucket(*key) : buckets_;
+  hlist_pair<K, V> *pos = key ? find_in<K, V>(bkt, *key, hash_equal_) :
+      container_of(bkt->head.first, &hlist_pair<K, V>::node);
+  if (!pos) return pairs;
+
+  hlist_bucket *bkt_end = buckets_ + bucket_count_;
+  hlist_node *node = &pos->node;
+  for (; bkt < bkt_end; ++bkt) {
+    if (!node) node = bkt->head.first;
+    for (; node; node = node->next) {
+      hlist_pair<K, V> *pair = container_of(node, &hlist_pair<K, V>::node);
+      pairs.push_back(std::make_pair(pair->key, pair->value));
     }
-  } while (sitevm_commit_and_update(svm_));
+  }
   return pairs;
 }
 
 template <typename K, typename V, class HashEqual>
-size_t hashtable<K, V, HashEqual>::clear() {
-  size_t num;
-  do {
-    num = clear_all<K, V>(buckets_, bucket_count_);
-  } while (sitevm_commit_and_update(svm_));
-  return num;
+std::size_t hashtable<K, V, HashEqual>::clear() {
+  return clear_all<K, V>(buckets_, bucket_count_);
 }
 
 template <typename K, typename V, class HashEqual>
 hashtable<K, V, HashEqual>::~hashtable() {
-  do {
-    clear_all<K, V>(buckets_, bucket_count_);
-    FREE(buckets_);
-  } while (sitevm_commit_and_update(svm_));
+  clear_all<K, V>(buckets_, bucket_count_);
+  FREE(buckets_);
 }
 
 template <typename K, typename V, class HashEqual>
-void hashtable<K, V, HashEqual>::rehash(size_t n) {
-  do {
-    hlist_bucket *bkts = new_buckets(n);
-    size_t num = 0;
-    for (int i = 0; i < bucket_count_; ++i) {
-      hlist_node *pos, *next;
-      hlist_for_each_safe(pos, next, &buckets_[i].head) {
-        hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
-        size_t j = hash_equal_.hash(pair->key) % n;
-        insert_to(bkts + j, pair->key, pair->value);
-        erase_from(buckets_ + i, pair);
-        ++num;
-      }
+void hashtable<K, V, HashEqual>::rehash(std::size_t n) {
+  hlist_bucket *bkts = new_buckets(n);
+  std::size_t num = 0;
+  for (int i = 0; i < bucket_count_; ++i) {
+    hlist_node *pos, *next;
+    hlist_for_each_safe(pos, next, &buckets_[i].head) {
+      hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
+      std::size_t j = hash_equal_.hash(pair->key) % n;
+      insert_to(bkts + j, pair->key, pair->value);
+      erase_from(buckets_ + i, pair);
+      ++num;
     }
-    FREE(buckets_);
-    buckets_ = bkts;
-    bucket_count_ = n;
-  } while (sitevm_commit_and_update(svm_));
+  }
+  FREE(buckets_);
+  buckets_ = bkts;
+  bucket_count_ = n;
 }
 
 template <typename K, typename V, class HashEqual>
-size_t hashtable<K, V, HashEqual>::size() const {
-  size_t num;
-  do {
-    num = size_sum(buckets_, bucket_count_);
-  } while (sitevm_commit_and_update(svm_));
-  return num;
+std::size_t hashtable<K, V, HashEqual>::size() const {
+  return size_sum(buckets_, bucket_count_);
 }
 
 template <typename K, typename V, class HashEqual>
 float hashtable<K, V, HashEqual>::load_factor() const {
-  float factor;
-  do {
-    factor = size_sum(buckets_, bucket_count_) / (float)bucket_count_;
-  } while (sitevm_commit_and_update(svm_));
-  return factor;
+  return size() / (float)bucket_count_;
 }
 
 } // namespace slib
 
-#endif // VM_PERSISTENCE_SLIB_HASHTABLE_H_
+#endif // VM_PERSISTENCE_CORE_HASHTABLE_H_
 

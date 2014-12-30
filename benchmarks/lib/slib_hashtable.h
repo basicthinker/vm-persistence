@@ -1,4 +1,4 @@
-// tbb_hashtable.h
+// slib_hashtable.h
 // Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>
 
 #ifndef VM_PERSISTENCE_BENCHMARK_SLIB_HASHTABLE_H_
@@ -6,10 +6,10 @@
 
 #include "hashtable.h"
 
-#include "slib/hashtable.h"
+#include "slib/concurrent_hashtable.h"
 #include "hash_string.h"
 
-struct CStrHashCompare {
+struct HashEqual {
   inline size_t hash(const char *str) const {
     return LoadHash(str);
   }
@@ -38,7 +38,7 @@ class SLibHashtable : public Hashtable<V> {
 
  private:
   typedef typename
-      slib::hashtable<const char *, V, CStrHashCompare> CStrHashtable;
+      slib::concurrent_hashtable<const char *, V, HashEqual> CStrHashtable;
   CStrHashtable table_;
 };
 
