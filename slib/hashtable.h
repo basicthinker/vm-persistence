@@ -121,7 +121,7 @@ void insert_to(hlist_bucket *bkt, const K &key, const V &value) {
 template <typename K, typename V>
 void erase_from(hlist_bucket *bkt, hlist_pair<K, V> *pair) {
   hlist_del(&pair->node);
-  FREE(pair);
+  FREE(pair, sizeof(pair));
   --bkt->size;
   assert(bkt->size != hlist_empty(&bkt->head));    
 }
@@ -223,7 +223,7 @@ std::size_t hashtable<K, V, HashEqual>::clear() {
 template <typename K, typename V, class HashEqual>
 hashtable<K, V, HashEqual>::~hashtable() {
   clear_all<K, V>(buckets_, bucket_count_);
-  FREE(buckets_);
+  FREE(buckets_, sizeof(hlist_bucket) * bucket_count_);
 }
 
 template <typename K, typename V, class HashEqual>
@@ -240,7 +240,7 @@ void hashtable<K, V, HashEqual>::rehash(std::size_t n) {
       ++num;
     }
   }
-  FREE(buckets_);
+  FREE(buckets_, sizeof(hlist_bucket) * bucket_count_);
   buckets_ = bkts;
   bucket_count_ = n;
 }
