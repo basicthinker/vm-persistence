@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <cassert>
 #include "slib/list.h"
-#include "slib/mem_allocator.h"
+#include "slib/mem_alloc.h"
 
 namespace slib {
 
@@ -41,9 +41,13 @@ struct hlist_pair {
   K key;
   V value;
   hlist_node node;
+
+  hlist_pair(const K &k, const V &v) : key(k), value(v) {
+    INIT_HLIST_NODE(&node);    
+  }
 };
 
-template <typename K, typename V, class HashEqual>
+template <typename K, typename V, class HashEqual, class Alloc>
 class hashtable {
  public:
   hashtable(std::size_t num_buckets = 11, std::size_t local_load_factor = 4);
@@ -79,8 +83,9 @@ class hashtable {
 
 // Accessory functions
 
+template <class Alloc>
 inline hlist_bucket *new_buckets(std::size_t n) {
-  hlist_bucket *bkts = (hlist_bucket *)MALLOC(n * sizeof(hlist_bucket));
+  hlist_bucket *bkts = (hlist_bucket *)Alloc::Malloc(n * sizeof(hlist_bucket));
   for (std::size_t i = 0; i < n; ++i) {
     bkts[i].size = 0;
     INIT_HLIST_HEAD(&bkts[i].head);
@@ -96,9 +101,9 @@ inline std::size_t size_sum(const hlist_bucket *bkts, std::size_t n) {
   return count;
 }
 
-template <typename K, typename V, class HashEqual>
+template <typename K, typename V, class HashEqual, class Alloc>
 hlist_pair<K, V> *find_in(const hlist_bucket *bkt, const K &key,
-    const HashEqual &hash_equal) {
+    const HashEqual &hash_equal = HashEqual()) {
   hlist_node *node;
   hlist_for_each(node, &bkt->head) {
     hlist_pair<K, V> *pair = container_of(node, &hlist_pair<K, V>::node);
@@ -110,30 +115,27 @@ hlist_pair<K, V> *find_in(const hlist_bucket *bkt, const K &key,
 }
 
 template <typename K, typename V>
-void insert_to(hlist_bucket *bkt, const K &key, const V &value) {
-  hlist_pair<K, V> *pair = (hlist_pair<K, V> *)MALLOC(sizeof(hlist_pair<K, V>));
-  pair->key = key;
-  pair->value = value;
+void insert_to(hlist_bucket *bkt, hlist_pair<K, V> *pair) {
   hlist_add_head(&pair->node, &bkt->head);
   ++bkt->size;
 }
 
-template <typename K, typename V>
+template <typename K, typename V, class Alloc>
 void erase_from(hlist_bucket *bkt, hlist_pair<K, V> *pair) {
   hlist_del(&pair->node);
-  FREE(pair, sizeof(pair));
+  Alloc::Delete(pair);
   --bkt->size;
-  assert(bkt->size != hlist_empty(&bkt->head));    
+  assert(bkt->size != hlist_empty(&bkt->head));
 }
 
-template <typename K, typename V>
+template <typename K, typename V, class Alloc>
 std::size_t clear_all(hlist_bucket *bkts, std::size_t n) {
   std::size_t num = 0;
   for (int i = 0; i < n; ++i) {
     hlist_node *pos, *next;
     hlist_for_each_safe(pos, next, &bkts[i].head) {
       hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
-      erase_from(bkts + i, pair);
+      erase_from<K, V, Alloc>(bkts + i, pair);
       ++num;
     }
     assert(!bkts[i].size && hlist_empty(&bkts[i].head));
@@ -143,26 +145,26 @@ std::size_t clear_all(hlist_bucket *bkts, std::size_t n) {
 
 // Implementation of hashtable
 
-template <typename K, typename V, class HashEqual>
-hashtable<K, V, HashEqual>::hashtable(std::size_t n, std::size_t f) {
+template <typename K, typename V, class HashEqual, class Alloc>
+hashtable<K, V, HashEqual, Alloc>::hashtable(std::size_t n, std::size_t f) {
   bucket_count_ = n;
-  buckets_ = new_buckets(bucket_count_);
+  buckets_ = new_buckets<Alloc>(bucket_count_);
   local_load_factor_ = f;
 }
 
-template <typename K, typename V, class HashEqual>
-bool hashtable<K, V, HashEqual>::find(const K &key, V &value) const {
+template <typename K, typename V, class HashEqual, class Alloc>
+bool hashtable<K, V, HashEqual, Alloc>::find(const K &key, V &value) const {
   hlist_bucket *bkt = get_bucket(key);
-  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  hlist_pair<K, V> *pair = find_in<K, V, HashEqual, Alloc>(bkt, key);
   if (!pair) return false;
   value = pair->value;
   return true;
 }
 
-template <typename K, typename V, class HashEqual>
-bool hashtable<K, V, HashEqual>::update(const K &key, V &value) {
+template <typename K, typename V, class HashEqual, class Alloc>
+bool hashtable<K, V, HashEqual, Alloc>::update(const K &key, V &value) {
   hlist_bucket *bkt = get_bucket(key);
-  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  hlist_pair<K, V> *pair = find_in<K, V, HashEqual, Alloc>(bkt, key);
   if (!pair) return false;
   V old = pair->value;
   pair->value = value;
@@ -170,12 +172,13 @@ bool hashtable<K, V, HashEqual>::update(const K &key, V &value) {
   return true;
 }
 
-template <typename K, typename V, class HashEqual>
-bool hashtable<K, V, HashEqual>::insert(const K &key, const V &value) {
+template <typename K, typename V, class HashEqual, class Alloc>
+bool hashtable<K, V, HashEqual, Alloc>::insert(const K &key, const V &value) {
   hlist_bucket *bkt = get_bucket(key);
-  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_); 
+  hlist_pair<K, V> *pair = find_in<K, V, HashEqual, Alloc>(bkt, key); 
   if (pair) return false;
-  insert_to(bkt, key, value);
+  //pair = Alloc::New<hlist_pair<K, V>>(key, value);//TODO
+  insert_to(bkt, pair);
 
   if (bkt->size >= local_load_factor_) {
     rehash((bucket_count_ << 1) + 1);
@@ -183,23 +186,23 @@ bool hashtable<K, V, HashEqual>::insert(const K &key, const V &value) {
   return true;
 }
 
-template <typename K, typename V, class HashEqual>
-bool hashtable<K, V, HashEqual>::erase(const K &key, std::pair<K, V> &erased) {
+template <typename K, typename V, class HashEqual, class Alloc>
+bool hashtable<K, V, HashEqual, Alloc>::erase(const K &key, std::pair<K, V> &erased) {
   hlist_bucket *bkt = get_bucket(key);
-  hlist_pair<K, V> *pair = find_in<K, V>(bkt, key, hash_equal_);
+  hlist_pair<K, V> *pair = find_in<K, V, HashEqual, Alloc>(bkt, key);
   if (!pair) return false;
   erased.first = pair->key;
   erased.second = pair->value;
-  erase_from(bkt, pair);
+  erase_from<K, V, Alloc>(bkt, pair);
   return true;
 }
 
-template <typename K, typename V, class HashEqual>
-std::vector<std::pair<K, V>> hashtable<K, V, HashEqual>::entries(
+template <typename K, typename V, class HashEqual, class Alloc>
+std::vector<std::pair<K, V>> hashtable<K, V, HashEqual, Alloc>::entries(
     const K *key, std::size_t num) const {
   std::vector<std::pair<K, V>> pairs;
   hlist_bucket *bkt = key ? get_bucket(*key) : buckets_;
-  hlist_pair<K, V> *pos = key ? find_in<K, V>(bkt, *key, hash_equal_) :
+  hlist_pair<K, V> *pos = key ? find_in<K, V, HashEqual, Alloc>(bkt, *key) :
       container_of(bkt->head.first, &hlist_pair<K, V>::node);
   if (!pos) return pairs;
 
@@ -215,43 +218,42 @@ std::vector<std::pair<K, V>> hashtable<K, V, HashEqual>::entries(
   return pairs;
 }
 
-template <typename K, typename V, class HashEqual>
-std::size_t hashtable<K, V, HashEqual>::clear() {
-  return clear_all<K, V>(buckets_, bucket_count_);
+template <typename K, typename V, class HashEqual, class Alloc>
+std::size_t hashtable<K, V, HashEqual, Alloc>::clear() {
+  return clear_all<K, V, Alloc>(buckets_, bucket_count_);
 }
 
-template <typename K, typename V, class HashEqual>
-hashtable<K, V, HashEqual>::~hashtable() {
-  clear_all<K, V>(buckets_, bucket_count_);
-  FREE(buckets_, sizeof(hlist_bucket) * bucket_count_);
+template <typename K, typename V, class HashEqual, class Alloc>
+hashtable<K, V, HashEqual, Alloc>::~hashtable() {
+  clear_all<K, V, Alloc>(buckets_, bucket_count_);
+  Alloc::Free(buckets_, sizeof(hlist_bucket) * bucket_count_);
 }
 
-template <typename K, typename V, class HashEqual>
-void hashtable<K, V, HashEqual>::rehash(std::size_t n) {
-  hlist_bucket *bkts = new_buckets(n);
+template <typename K, typename V, class HashEqual, class Alloc>
+void hashtable<K, V, HashEqual, Alloc>::rehash(std::size_t n) {
+  hlist_bucket *bkts = new_buckets<Alloc>(n);
   std::size_t num = 0;
   for (int i = 0; i < bucket_count_; ++i) {
     hlist_node *pos, *next;
     hlist_for_each_safe(pos, next, &buckets_[i].head) {
       hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
       std::size_t j = hash_equal_.hash(pair->key) % n;
-      insert_to(bkts + j, pair->key, pair->value);
-      erase_from(buckets_ + i, pair);
+      insert_to(bkts + j, pair);
       ++num;
     }
   }
-  FREE(buckets_, sizeof(hlist_bucket) * bucket_count_);
+  Alloc::Free(buckets_, sizeof(hlist_bucket) * bucket_count_);
   buckets_ = bkts;
   bucket_count_ = n;
 }
 
-template <typename K, typename V, class HashEqual>
-std::size_t hashtable<K, V, HashEqual>::size() const {
+template <typename K, typename V, class HashEqual, class Alloc>
+std::size_t hashtable<K, V, HashEqual, Alloc>::size() const {
   return size_sum(buckets_, bucket_count_);
 }
 
-template <typename K, typename V, class HashEqual>
-float hashtable<K, V, HashEqual>::load_factor() const {
+template <typename K, typename V, class HashEqual, class Alloc>
+float hashtable<K, V, HashEqual, Alloc>::load_factor() const {
   return size() / (float)bucket_count_;
 }
 
