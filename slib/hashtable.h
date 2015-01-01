@@ -6,8 +6,8 @@
 //  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
 //
 
-#ifndef VM_PERSISTENCE_CORE_HASHTABLE_H_
-#define VM_PERSISTENCE_CORE_HASHTABLE_H_
+#ifndef VM_PERSISTENCE_SLIB_HASHTABLE_H_
+#define VM_PERSISTENCE_SLIB_HASHTABLE_H_
 
 #include <cstdint>
 #include <cassert>
@@ -177,7 +177,7 @@ bool hashtable<K, V, HashEqual, Alloc>::insert(const K &key, const V &value) {
   hlist_bucket *bkt = get_bucket(key);
   hlist_pair<K, V> *pair = find_in<K, V, HashEqual, Alloc>(bkt, key); 
   if (pair) return false;
-  //pair = Alloc::New<hlist_pair<K, V>>(key, value);//TODO
+  pair = Alloc::template New<hlist_pair<K, V>>(key, value);
   insert_to(bkt, pair);
 
   if (bkt->size >= local_load_factor_) {
@@ -259,5 +259,5 @@ float hashtable<K, V, HashEqual, Alloc>::load_factor() const {
 
 } // namespace slib
 
-#endif // VM_PERSISTENCE_CORE_HASHTABLE_H_
+#endif // VM_PERSISTENCE_SLIB_HASHTABLE_H_
 

@@ -18,13 +18,13 @@ struct MemAlloc {
   static void Free(T *p, std::size_t size) { free((void *)p); }
 
   template <typename T, typename... Arguments>
-  T *New(Arguments... args) { return new T(args...); }
+  static T *New(Arguments... args) { return new T(args...); }
 
   template <typename T>
   static void Delete(T *p) { return delete p; }
 };
 
-struct SVMAlloc {
+struct SvmAlloc {
   static void *Malloc(std::size_t size) { return sitevm_malloc::smalloc(size); }
 
   template <typename T>
