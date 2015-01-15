@@ -125,13 +125,13 @@ void erase_from(hlist_bucket *bkt, hlist_pair<K, V> *pair) {
   hlist_del(&pair->node);
   Alloc::Delete(pair);
   --bkt->size;
-  assert(bkt->size != hlist_empty(&bkt->head));
+  assert((bool)bkt->size != hlist_empty(&bkt->head));
 }
 
 template <typename K, typename V, class Alloc>
 std::size_t clear_all(hlist_bucket *bkts, std::size_t n) {
   std::size_t num = 0;
-  for (int i = 0; i < n; ++i) {
+  for (std::size_t i = 0; i < n; ++i) {
     hlist_node *pos, *next;
     hlist_for_each_safe(pos, next, &bkts[i].head) {
       hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
@@ -213,6 +213,7 @@ std::vector<std::pair<K, V>> hashtable<K, V, HashEqual, Alloc>::entries(
     for (; node; node = node->next) {
       hlist_pair<K, V> *pair = container_of(node, &hlist_pair<K, V>::node);
       pairs.push_back(std::make_pair(pair->key, pair->value));
+      if (pairs.size() == num) return pairs;
     }
   }
   return pairs;
@@ -233,7 +234,7 @@ template <typename K, typename V, class HashEqual, class Alloc>
 void hashtable<K, V, HashEqual, Alloc>::rehash(std::size_t n) {
   hlist_bucket *bkts = new_buckets<Alloc>(n);
   std::size_t num = 0;
-  for (int i = 0; i < bucket_count_; ++i) {
+  for (std::size_t i = 0; i < bucket_count_; ++i) {
     hlist_node *pos, *next;
     hlist_for_each_safe(pos, next, &buckets_[i].head) {
       hlist_pair<K, V> *pair = container_of(pos, &hlist_pair<K, V>::node);
