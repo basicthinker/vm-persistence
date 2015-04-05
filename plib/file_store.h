@@ -28,14 +28,15 @@ struct File {
 
 class FileStore : public VersionedPersistence {
  public:
-  FileStore(int num_streams, const char *name_prefix);
+  FileStore(const char *name_prefix, int num_out, int num_in);
   ~FileStore();
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
   void DestroyPages(void *pages[], int n);
 
  protected:
-  std::vector<File> files_; 
+  std::vector<File> out_files_; // index 0 is for metadata (versions) 
+  std::vector<File> in_files_; 
 };
 
 } // namespace plib

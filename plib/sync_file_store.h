@@ -15,7 +15,8 @@ namespace plib {
 
 class SyncFileStore : public FileStore {
  public:
-  SyncFileStore(int num, const char *name) : FileStore(num, name) { }
+  SyncFileStore(const char *name, int num_out, int num_in) :
+      FileStore(name, num_out, num_in) { }
 
   void *Submit(const DataEntry data[], int n);
   int Commit(void *handle, uint64_t timestamp,

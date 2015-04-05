@@ -15,12 +15,12 @@ namespace plib {
 
 struct DataEntry {
   void *data;
-  int32_t size;
+  uint32_t size;
 };
 
 struct MetaEntry {
   uint64_t address;
-  int32_t size;
+  uint32_t size;
 };
 
 class VersionedPersistence {

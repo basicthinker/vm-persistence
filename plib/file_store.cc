@@ -10,7 +10,9 @@
 
 using namespace plib;
 
-FileStore::FileStore(int num_streams, const char *name_prefix) {
+FileStore::FileStore(const char *name_prefix, int num_out, int num_in) {
+  assert(num_out < 0xff); // index is 8-bit
+
   std::string name(name_prefix);
   std::string meta_name = name + "0";
   File file(fopen(meta_name.c_str(), "r+b"));
@@ -21,9 +23,9 @@ FileStore::FileStore(int num_streams, const char *name_prefix) {
     int err = fseek(file.descriptor, 0, SEEK_END);
     assert(!err);
   }
-  files_.push_back(file);
+  out_files_.push_back(file);
 
-  for (int i = 1; i <= num_streams; ++i) {
+  for (int i = 1; i <= num_out; ++i) {
     std::string data_name = name + std::to_string(i);
     file.descriptor = fopen(data_name.c_str(), "r+b");
     if (!file.descriptor) {
@@ -33,12 +35,22 @@ FileStore::FileStore(int num_streams, const char *name_prefix) {
       int err = fseek(file.descriptor, 0, SEEK_END);
       assert(!err);
     }
-    files_.push_back(file);
+    out_files_.push_back(file);
+  }
+
+  for (int i = 0; i < num_in; ++i) {
+    file.descriptor = fopen(meta_name.c_str(), "rb");
+    in_files_.push_back(file);
   }
 }
 
 FileStore::~FileStore() {
-  for (File &f : files_) {
+  for (File &f : out_files_) {
+    std::lock_guard<std::mutex> lock(f.mutex);
+    fclose(f.descriptor);
+  }
+
+  for (File &f : in_files_) {
     std::lock_guard<std::mutex> lock(f.mutex);
     fclose(f.descriptor);
   }
