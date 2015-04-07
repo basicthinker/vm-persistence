@@ -41,6 +41,8 @@ FileStore::FileStore(const char *name_prefix, int num_out, int num_in) {
     out_files_.push_back(file);
   }
 
+  out_index_ = 0;
+
   for (int i = 0; i < num_in; ++i) {
     FILE *fp = fopen(meta_name.c_str(), "rb");
     assert(fp);

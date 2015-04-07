@@ -12,7 +12,7 @@
 
 using namespace plib;
 
-void *SyncFileStore::Submit(uint64_t timestamp, const DataEntry data[], int n) {
+void *SyncFileStore::Submit(const DataEntry data[], int n) {
   uint32_t size = 0;
   for (int i = 0; i < n; ++i) {
     size += data[i].size;
@@ -33,7 +33,7 @@ void *SyncFileStore::Submit(uint64_t timestamp, const DataEntry data[], int n) {
 int SyncFileStore::Commit(void *handle, uint64_t timestamp,
     const MetaEntry metadata[], int16_t n) {
   assert(n > 0);
-  uint8_t index = timestamp % (out_files_.size() - 1) + 1;
+  uint8_t index = OutIndex();
 
   DataEntry *data_buf = (DataEntry *)handle;
   File &df = out_files_[index]; // data file

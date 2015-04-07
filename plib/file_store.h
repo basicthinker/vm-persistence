@@ -13,7 +13,9 @@
 #include <cassert>
 #include <string>
 #include <vector>
+#include <atomic>
 #include <mutex>
+
 #include "versioned_persistence.h"
 
 namespace plib {
@@ -56,9 +58,11 @@ class FileStore : public VersionedPersistence {
   std::vector<File> out_files_; // index 0 is for metadata (versions) 
   std::vector<File> in_files_;
 
-  uint8_t OutIndex(uint64_t timestamp) {
-    return timestamp % (out_files_.size() - 1) + 1;
+  uint8_t OutIndex() {
+    return out_index_++ % (out_files_.size() - 1) + 1;
   }
+ private:
+  std::atomic_int out_index_;
 };
 
 } // namespace plib

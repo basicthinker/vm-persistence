@@ -13,20 +13,21 @@
 
 using namespace plib;
 
-void *AsyncFileStore::Submit(uint64_t timestamp,
-    const DataEntry data[], int n) {
-  File &f = out_files_[OutIndex(timestamp)];
+void *AsyncFileStore::Submit(const DataEntry data[], int n) {
+  uint8_t index = OutIndex();
+  File &f = out_files_[index];
 
   uint32_t size = 0;
   for (int i = 0; i < n; ++i) {
     size += data[i].size;
   }
-  void *buf = malloc(size);
+  void *buf = malloc(size + sizeof(uint8_t)); // plus index
   char *cur = (char *)buf;
   for (int i = 0; i < n; ++i) {
     cur = Serialize(cur, data[i].data, data[i].size);
   }
   assert(cur - (char *)buf == size);
+  Serialize(cur, index);
 
   aiocb *dcb = new aiocb(); // data IO control block
   AioWrite(dcb, f, buf, size);
@@ -39,6 +40,7 @@ int AsyncFileStore::Commit(void *handle, uint64_t timestamp,
 
   aiocb *dcb = (aiocb *)handle;
   uint64_t pos = dcb->aio_offset;
+  uint8_t index = *(uint8_t *)((char *)dcb->aio_buf + dcb->aio_nbytes);
   AioSuspend(dcb);
   free((void *)dcb->aio_buf);
   delete dcb;
@@ -46,8 +48,7 @@ int AsyncFileStore::Commit(void *handle, uint64_t timestamp,
   File &mf = out_files_[0]; // metadata file
   size_t len = MetaLength(n);
   char *mbuf = (char *)malloc(len);
-  char *end = EncodeMeta(mbuf, timestamp, metadata, n,
-      OutIndex(timestamp), pos);
+  char *end = EncodeMeta(mbuf, timestamp, metadata, n, index, pos);
   assert(size_t(end - mbuf) == len);
 
   aiocb mcb; // metadata IO control block
