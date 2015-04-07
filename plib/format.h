@@ -15,17 +15,22 @@ namespace plib {
 
 // Utils
 
+inline char *Serialize(char *mem, void *source, size_t nbytes) {
+  memcpy(mem, source, nbytes);
+  return mem + nbytes;
+}
+
 template <typename T>
-char *Serialize(char *mem, const T &obj) {
+inline char *Serialize(char *mem, const T &obj) {
   *(T *)mem = obj;
   return mem + sizeof(T);
 }
 
-uint64_t ToIndexedPosition(uint64_t pos, uint8_t index) {
+inline uint64_t ToIndexedPosition(uint64_t pos, uint8_t index) {
   return (pos << 8) + index;
 }
 
-uint8_t ParseIndexedPosition(uint64_t *pos) {
+inline uint8_t ParseIndexedPosition(uint64_t *pos) {
   uint8_t index = *pos & 0xff;
   *pos >>= 8;
   return index;
@@ -33,13 +38,13 @@ uint8_t ParseIndexedPosition(uint64_t *pos) {
 
 // Meta format
 
-size_t MetaLength(int16_t n) {
+inline size_t MetaLength(int16_t n) {
   size_t len = sizeof(uint64_t) + sizeof(int16_t); // header
   len += (2 * sizeof(uint64_t) + sizeof(uint32_t)) * n;
   return len;
 }
 
-char *EncodeMeta(char *mem, uint64_t timestamp,
+inline char *EncodeMeta(char *mem, uint64_t timestamp,
     const MetaEntry meta[], int16_t n, int index, uint64_t pos) {
   char *cur = Serialize(mem, timestamp);
   cur = Serialize(cur, n);

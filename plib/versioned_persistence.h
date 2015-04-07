@@ -25,7 +25,7 @@ struct MetaEntry {
 
 class VersionedPersistence {
  public:
-  virtual void *Submit(const DataEntry data[], int n) = 0;
+  virtual void *Submit(uint64_t timestamp, const DataEntry data[], int n) = 0;
   virtual int Commit(void *handle, uint64_t timestamp,
       const MetaEntry meta[], int16_t n) = 0;
 

@@ -12,7 +12,7 @@
 
 using namespace plib;
 
-void *SyncFileStore::Submit(const DataEntry data[], int n) {
+void *SyncFileStore::Submit(uint64_t timestamp, const DataEntry data[], int n) {
   uint32_t size = 0;
   for (int i = 0; i < n; ++i) {
     size += data[i].size;
@@ -37,10 +37,10 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
 
   DataEntry *data_buf = (DataEntry *)handle;
   File &df = out_files_[index]; // data file
-  df.mutex.lock();
-  uint64_t pos = ftell(df.descriptor);
-  size_t size = fwrite(data_buf->data, 1, data_buf->size, df.descriptor);
-  df.mutex.unlock();
+  df.lock();
+  uint64_t pos = df.offset();
+  size_t size = fwrite(data_buf->data, 1, data_buf->size, df.filptr());
+  df.unlock();
   assert(size == data_buf->size);
   free(data_buf->data);
   delete data_buf;
@@ -51,9 +51,9 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
   assert(size_t(end - meta_buf) == len);
 
   File &mf = out_files_[0]; // metadata file
-  mf.mutex.lock();
-  size = fwrite(meta_buf, 1, len, mf.descriptor);
-  mf.mutex.unlock();
+  mf.lock();
+  size = fwrite(meta_buf, 1, len, mf.filptr());
+  mf.unlock();
   assert(size == len);
   free(meta_buf);
   return 0;

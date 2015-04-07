@@ -18,12 +18,30 @@
 
 namespace plib {
 
-struct File {
-  FILE *descriptor;
-  std::mutex mutex;
+class File {
+ public:
+  File(FILE *fp = nullptr) { set_filptr(fp); }
+  File(const File &other) {
+    filptr_ = other.filptr_;
+    offset_ = other.offset_;
+  }
 
-  File(FILE *descriptor = nullptr) : descriptor(descriptor) { }
-  File(const File &other) { descriptor = other.descriptor; }
+  FILE *filptr() const { return filptr_; }
+  void set_filptr(FILE *fp) {
+    filptr_ = fp;
+    offset_ = fp ? ftell(fp) : -1;
+  }
+
+  off_t offset() const { return offset_; }
+  void inc_offset(off_t nbytes) { offset_ += nbytes; }
+
+  void lock() { mutex_.lock(); }
+  void unlock() { mutex_.unlock(); }
+
+ private:
+  FILE *filptr_;
+  off_t offset_;
+  std::mutex mutex_;
 };
 
 class FileStore : public VersionedPersistence {
@@ -36,7 +54,11 @@ class FileStore : public VersionedPersistence {
 
  protected:
   std::vector<File> out_files_; // index 0 is for metadata (versions) 
-  std::vector<File> in_files_; 
+  std::vector<File> in_files_;
+
+  uint8_t OutIndex(uint64_t timestamp) {
+    return timestamp % (out_files_.size() - 1) + 1;
+  }
 };
 
 } // namespace plib

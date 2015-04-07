@@ -12,47 +12,51 @@ using namespace plib;
 
 FileStore::FileStore(const char *name_prefix, int num_out, int num_in) {
   assert(num_out < 0xff); // index is 8-bit
+  File file;
 
   std::string name(name_prefix);
   std::string meta_name = name + "0";
-  File file(fopen(meta_name.c_str(), "r+b"));
-  if (!file.descriptor) {
-    file.descriptor = fopen(meta_name.c_str(), "wb");
-    assert(file.descriptor);
+  FILE *fp = fopen(meta_name.c_str(), "r+b");
+  if (!fp) {
+    file.set_filptr(fopen(meta_name.c_str(), "wb"));
+    assert(file.filptr());
   } else {
-    int err = fseek(file.descriptor, 0, SEEK_END);
+    int err = fseek(fp, 0, SEEK_END);
     assert(!err);
+    file.set_filptr(fp);
   }
   out_files_.push_back(file);
 
   for (int i = 1; i <= num_out; ++i) {
     std::string data_name = name + std::to_string(i);
-    file.descriptor = fopen(data_name.c_str(), "r+b");
-    if (!file.descriptor) {
-      file.descriptor = fopen(data_name.c_str(), "wb");
-      assert(file.descriptor);
+    FILE *fp = fopen(data_name.c_str(), "r+b");
+    if (!fp) {
+      file.set_filptr(fopen(data_name.c_str(), "wb"));
+      assert(file.filptr());
     } else {
-      int err = fseek(file.descriptor, 0, SEEK_END);
+      int err = fseek(fp, 0, SEEK_END);
       assert(!err);
+      file.set_filptr(fp);
     }
     out_files_.push_back(file);
   }
 
   for (int i = 0; i < num_in; ++i) {
-    file.descriptor = fopen(meta_name.c_str(), "rb");
-    in_files_.push_back(file);
+    FILE *fp = fopen(meta_name.c_str(), "rb");
+    assert(fp);
+    in_files_.push_back(fp);
   }
 }
 
 FileStore::~FileStore() {
   for (File &f : out_files_) {
-    std::lock_guard<std::mutex> lock(f.mutex);
-    fclose(f.descriptor);
+    f.lock();
+    fclose(f.filptr());
   }
 
   for (File &f : in_files_) {
-    std::lock_guard<std::mutex> lock(f.mutex);
-    fclose(f.descriptor);
+    f.lock();
+    fclose(f.filptr());
   }
 }
 
