@@ -13,17 +13,17 @@
 
 using namespace plib;
 
-void *AsyncFileStore::Submit(const DataEntry data[], int n) {
+void *AsyncFileStore::Submit(const DataEntry data[], uint32_t n) {
   uint8_t index = OutIndex();
   File &f = out_files_[index];
 
   uint32_t size = 0;
-  for (int i = 0; i < n; ++i) {
+  for (uint32_t i = 0; i < n; ++i) {
     size += data[i].size;
   }
   void *buf = malloc(size + sizeof(uint8_t)); // plus index
   char *cur = (char *)buf;
-  for (int i = 0; i < n; ++i) {
+  for (uint32_t i = 0; i < n; ++i) {
     cur = Serialize(cur, data[i].data, data[i].size);
   }
   assert(cur - (char *)buf == size);
@@ -35,9 +35,7 @@ void *AsyncFileStore::Submit(const DataEntry data[], int n) {
 }
 
 int AsyncFileStore::Commit(void *handle, uint64_t timestamp,
-    const MetaEntry metadata[], int16_t n) {
-  assert(n > 0);
-
+    const MetaEntry metadata[], uint32_t n) {
   aiocb *dcb = (aiocb *)handle;
   uint64_t pos = dcb->aio_offset;
   uint8_t index = *(uint8_t *)((char *)dcb->aio_buf + dcb->aio_nbytes);

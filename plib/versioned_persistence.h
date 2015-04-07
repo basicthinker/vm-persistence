@@ -25,9 +25,9 @@ struct MetaEntry {
 
 class VersionedPersistence {
  public:
-  virtual void *Submit(const DataEntry data[], int n) = 0;
+  virtual void *Submit(const DataEntry data[], uint32_t n) = 0;
   virtual int Commit(void *handle, uint64_t timestamp,
-      const MetaEntry meta[], int16_t n) = 0;
+      const MetaEntry meta[], uint32_t n) = 0;
 
   virtual void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n) = 0;
   virtual void DestroyPages(void *pages[], int n) = 0;

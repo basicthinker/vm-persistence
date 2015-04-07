@@ -12,9 +12,9 @@
 
 using namespace plib;
 
-void *SyncFileStore::Submit(const DataEntry data[], int n) {
+void *SyncFileStore::Submit(const DataEntry data[], uint32_t n) {
   uint32_t size = 0;
-  for (int i = 0; i < n; ++i) {
+  for (uint32_t i = 0; i < n; ++i) {
     size += data[i].size;
   }
 
@@ -22,7 +22,7 @@ void *SyncFileStore::Submit(const DataEntry data[], int n) {
   handle->size = size;
   handle->data = malloc(size);
   char *cur = (char *)handle->data;
-  for (int i = 0; i < n; ++i) {
+  for (uint32_t i = 0; i < n; ++i) {
     memcpy(cur, data[i].data, data[i].size);
     cur += data[i].size;
   }
@@ -31,8 +31,7 @@ void *SyncFileStore::Submit(const DataEntry data[], int n) {
 }
 
 int SyncFileStore::Commit(void *handle, uint64_t timestamp,
-    const MetaEntry metadata[], int16_t n) {
-  assert(n > 0);
+    const MetaEntry metadata[], uint32_t n) {
   uint8_t index = OutIndex();
 
   DataEntry *data_buf = (DataEntry *)handle;

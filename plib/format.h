@@ -38,21 +38,19 @@ inline uint8_t ParseIndexedPosition(uint64_t *pos) {
 
 // Meta format
 
-inline size_t MetaLength(int16_t n) {
-  size_t len = sizeof(uint64_t) + sizeof(int16_t); // header
-  len += (2 * sizeof(uint64_t) + sizeof(uint32_t)) * n;
+inline size_t MetaLength(uint32_t n) {
+  size_t len = 2 * sizeof(uint64_t) + sizeof(uint32_t); // header
+  len += sizeof(uint64_t) * n;
   return len;
 }
 
 inline char *EncodeMeta(char *mem, uint64_t timestamp,
-    const MetaEntry meta[], int16_t n, int index, uint64_t pos) {
+    const MetaEntry meta[], uint32_t n, int index, uint64_t pos) {
   char *cur = Serialize(mem, timestamp);
+  cur = Serialize(cur, ToIndexedPosition(pos, index));
   cur = Serialize(cur, n);
-  for (int i = 0; i < n; ++i) {
+  for (uint32_t i = 0; i < n; ++i) {
     cur = Serialize(cur, meta[i].address);
-    cur = Serialize(cur, meta[i].size);
-    cur = Serialize(cur, ToIndexedPosition(pos, index));
-    pos += meta[i].size;
   }
   return cur;
 }
