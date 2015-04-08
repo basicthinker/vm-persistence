@@ -10,7 +10,8 @@
 
 using namespace plib;
 
-FileStore::FileStore(const char *name_prefix, int num_out, int num_in) {
+FileStore::FileStore(size_t ent_size, const char *name_prefix,
+    int num_out, int num_in) : VersionedPersistence(ent_size) {
   assert(num_out < 0xff); // index is 8-bit
   File file;
 

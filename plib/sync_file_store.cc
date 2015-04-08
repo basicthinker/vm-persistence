@@ -12,37 +12,30 @@
 
 using namespace plib;
 
-void *SyncFileStore::Submit(const DataEntry data[], uint32_t n) {
-  uint32_t size = 0;
-  for (uint32_t i = 0; i < n; ++i) {
-    size += data[i].size;
-  }
+void *SyncFileStore::Submit(void *data[], uint32_t n) {
+  uint32_t size = kEntrySize * n;
 
-  DataEntry *handle = new DataEntry;
-  handle->size = size;
-  handle->data = malloc(size);
-  char *cur = (char *)handle->data;
+  void *handle = malloc(size);
+  char *cur = (char *)handle;
   for (uint32_t i = 0; i < n; ++i) {
-    memcpy(cur, data[i].data, data[i].size);
-    cur += data[i].size;
+    memcpy(cur, data[i], kEntrySize);
+    cur += kEntrySize;
   }
-  assert(cur - (char *)handle->data == size);
+  assert(cur - (char *)handle == size);
   return handle;
 }
 
 int SyncFileStore::Commit(void *handle, uint64_t timestamp,
-    const MetaEntry metadata[], uint32_t n) {
+    uint64_t metadata[], uint32_t n) {
   uint8_t index = OutIndex();
 
-  DataEntry *data_buf = (DataEntry *)handle;
   File &df = out_files_[index]; // data file
   df.lock();
   uint64_t pos = df.offset();
-  size_t size = fwrite(data_buf->data, 1, data_buf->size, df.filptr());
+  size_t count = fwrite(handle, kEntrySize, n, df.filptr());
   df.unlock();
-  assert(size == data_buf->size);
-  free(data_buf->data);
-  delete data_buf;
+  assert(count == n);
+  free(handle);
 
   size_t len = MetaLength(n);
   char *meta_buf = (char *)malloc(len);
@@ -51,9 +44,9 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
 
   File &mf = out_files_[0]; // metadata file
   mf.lock();
-  size = fwrite(meta_buf, 1, len, mf.filptr());
+  count = fwrite(meta_buf, 1, len, mf.filptr());
   mf.unlock();
-  assert(size == len);
+  assert(count == len);
   free(meta_buf);
   return 0;
 }

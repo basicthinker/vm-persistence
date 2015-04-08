@@ -45,12 +45,12 @@ inline size_t MetaLength(uint32_t n) {
 }
 
 inline char *EncodeMeta(char *mem, uint64_t timestamp,
-    const MetaEntry meta[], uint32_t n, int index, uint64_t pos) {
+    uint64_t meta[], uint32_t n, uint8_t index, uint64_t pos) {
   char *cur = Serialize(mem, timestamp);
   cur = Serialize(cur, ToIndexedPosition(pos, index));
   cur = Serialize(cur, n);
   for (uint32_t i = 0; i < n; ++i) {
-    cur = Serialize(cur, meta[i].address);
+    cur = Serialize(cur, meta[i]);
   }
   return cur;
 }

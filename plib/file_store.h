@@ -48,7 +48,7 @@ class File {
 
 class FileStore : public VersionedPersistence {
  public:
-  FileStore(const char *name_prefix, int num_out, int num_in);
+  FileStore(size_t ent_size, const char *name_prefix, int num_out, int num_in);
   ~FileStore();
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);

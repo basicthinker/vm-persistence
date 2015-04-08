@@ -20,12 +20,11 @@ namespace plib {
 
 class AsyncFileStore : public FileStore {
  public:
-  AsyncFileStore(const char *name, int num_out, int num_in) :
-      FileStore(name, num_out, num_in) { }
+  AsyncFileStore(size_t ent_size, const char *name, int num_out, int num_in) :
+      FileStore(ent_size, name, num_out, num_in) { }
 
-  void *Submit(const DataEntry data[], uint32_t n);
-  int Commit(void *handle, uint64_t timestamp,
-      const MetaEntry meta[], uint32_t n);
+  void *Submit(void *data[], uint32_t n);
+  int Commit(void *handle, uint64_t timestamp, uint64_t meta[], uint32_t n);
  private:
   void AioWrite(aiocb *cb, File &file,
       void *buf, size_t nbytes, int priority = 0);

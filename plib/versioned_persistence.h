@@ -13,26 +13,20 @@
 
 namespace plib {
 
-struct DataEntry {
-  void *data;
-  uint32_t size;
-};
-
-struct MetaEntry {
-  uint64_t address;
-  uint32_t size;
-};
-
 class VersionedPersistence {
  public:
-  virtual void *Submit(const DataEntry data[], uint32_t n) = 0;
+  VersionedPersistence(size_t ent_size) : kEntrySize(ent_size) { }
+
+  virtual void *Submit(void *data[], uint32_t n) = 0;
   virtual int Commit(void *handle, uint64_t timestamp,
-      const MetaEntry meta[], uint32_t n) = 0;
+      uint64_t metadata[], uint32_t n) = 0;
 
   virtual void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n) = 0;
   virtual void DestroyPages(void *pages[], int n) = 0;
 
   virtual ~VersionedPersistence() { }
+ protected:
+  const size_t kEntrySize;
 };
 
 } // namespace plib
