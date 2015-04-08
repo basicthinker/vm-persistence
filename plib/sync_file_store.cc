@@ -32,9 +32,10 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
   File &df = out_files_[index]; // data file
   df.lock();
   uint64_t pos = df.offset();
-  size_t count = fwrite(handle, kEntrySize, n, df.filptr());
+  size_t count = write(df.descriptor(), handle, kEntrySize * n);
+  df.inc_offset(count);
   df.unlock();
-  assert(count == n);
+  assert(count == kEntrySize * n);
   free(handle);
 
   size_t len = MetaLength(n);
@@ -44,7 +45,8 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
 
   File &mf = out_files_[0]; // metadata file
   mf.lock();
-  count = fwrite(meta_buf, 1, len, mf.filptr());
+  count = write(mf.descriptor(), meta_buf, len);
+  mf.inc_offset(count);
   mf.unlock();
   assert(count == len);
   free(meta_buf);

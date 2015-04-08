@@ -34,12 +34,12 @@ class AsyncFileStore : public FileStore {
 inline void AsyncFileStore::AioWrite(aiocb *cb, File &file,
     void *buf, size_t nbytes, int priority) {
   file.lock();
-  cb->aio_fildes = fileno(file.filptr());
+  cb->aio_fildes = file.descriptor();
   cb->aio_offset = file.offset();
   cb->aio_buf = buf;
   cb->aio_nbytes = nbytes;
-  file.inc_offset(nbytes);
   cb->aio_reqprio = priority;
+  file.inc_offset(nbytes);
   file.unlock();
 
   int err = aio_write(cb);

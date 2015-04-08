@@ -9,12 +9,14 @@
 #ifndef VM_PERSISTENCE_PLIB_FILE_STORE_H_
 #define VM_PERSISTENCE_PLIB_FILE_STORE_H_
 
-#include <cstdio>
 #include <cassert>
 #include <string>
 #include <vector>
 #include <atomic>
 #include <mutex>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "versioned_persistence.h"
 
@@ -22,16 +24,16 @@ namespace plib {
 
 class File {
  public:
-  File(FILE *fp = nullptr) { set_filptr(fp); }
+  File(int fd = -1) { set_descriptor(fd); }
   File(const File &other) {
-    filptr_ = other.filptr_;
+    descriptor_ = other.descriptor_;
     offset_ = other.offset_;
   }
 
-  FILE *filptr() const { return filptr_; }
-  void set_filptr(FILE *fp) {
-    filptr_ = fp;
-    offset_ = fp ? ftell(fp) : -1;
+  int descriptor() const { return descriptor_; }
+  void set_descriptor(int fd) {
+    descriptor_ = fd;
+    offset_ = fd >= 0 ? lseek(fd, 0, SEEK_CUR) : -1;
   }
 
   off_t offset() const { return offset_; }
@@ -41,7 +43,7 @@ class File {
   void unlock() { mutex_.unlock(); }
 
  private:
-  FILE *filptr_;
+  int descriptor_;
   off_t offset_;
   std::mutex mutex_;
 };
