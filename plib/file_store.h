@@ -56,15 +56,20 @@ class FileStore : public VersionedPersistence {
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
   void DestroyPages(void *pages[], int n);
 
+  unsigned int sync_freq() const { return sync_freq_; }
+  void set_sync_freq(unsigned int freq) { sync_freq_ = freq; }
+
  protected:
   std::vector<File> out_files_; // index 0 is for metadata (versions) 
   std::vector<File> in_files_;
 
-  uint8_t OutIndex() {
-    return out_index_++ % (out_files_.size() - 1) + 1;
+  unsigned int seq_num() { return seq_num_++; }
+  uint8_t OutIndex(unsigned int seq) {
+    return seq % (out_files_.size() - 1) + 1;
   }
  private:
-  std::atomic_int out_index_;
+  std::atomic_uint seq_num_;
+  unsigned int sync_freq_;
 };
 
 } // namespace plib

@@ -11,7 +11,8 @@
 using namespace plib;
 
 FileStore::FileStore(size_t ent_size, const char *name_prefix,
-    int num_out, int num_in) : VersionedPersistence(ent_size) {
+    int num_out, int num_in) : VersionedPersistence(ent_size),
+    seq_num_(0), sync_freq_(-1) {
   assert(ent_size && num_out < 0xff); // index is 8-bit
 
   std::string name(name_prefix);
@@ -30,8 +31,6 @@ FileStore::FileStore(size_t ent_size, const char *name_prefix,
     lseek(fd, 0, SEEK_END);
     out_files_.push_back(fd);
   }
-
-  out_index_ = 0;
 
   for (int i = 0; i < num_in; ++i) {
     int fd = open(meta_name.c_str(), O_RDONLY);

@@ -27,7 +27,8 @@ void *SyncFileStore::Submit(void *data[], uint32_t n) {
 
 int SyncFileStore::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
-  uint8_t index = OutIndex();
+  unsigned int seq = seq_num();
+  uint8_t index = OutIndex(seq);
 
   File &df = out_files_[index]; // data file
   df.lock();
@@ -47,6 +48,12 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
   mf.lock();
   count = write(mf.descriptor(), meta_buf, len);
   mf.inc_offset(count);
+
+  if ((seq + 1) % sync_freq() == 0) {
+    for (File &f : out_files_) {
+      fdatasync(f.descriptor());
+    }
+  }
   mf.unlock();
   assert(count == len);
   return 0;
