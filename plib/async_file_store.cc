@@ -42,7 +42,7 @@ int AsyncFileStore::Commit(void *handle, uint64_t timestamp,
 
   File &mf = out_files_[0]; // metadata file
   size_t len = MetaLength(n);
-  char *mbuf = (char *)malloc(len);
+  char mbuf[len];
   char *end = EncodeMeta(mbuf, timestamp, metadata, n, index, pos);
   assert(size_t(end - mbuf) == len);
 
@@ -50,7 +50,6 @@ int AsyncFileStore::Commit(void *handle, uint64_t timestamp,
   memset(&mcb, 0, sizeof(mcb));
   AioWrite(&mcb, mf, mbuf, len);
   AioSuspend(&mcb);
-  free(mbuf);
   return 0;
 }
 

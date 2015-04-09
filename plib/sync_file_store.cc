@@ -39,7 +39,7 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
   free(handle);
 
   size_t len = MetaLength(n);
-  char *meta_buf = (char *)malloc(len);
+  char meta_buf[len];
   char *end = EncodeMeta(meta_buf, timestamp, metadata, n, index, pos);
   assert(size_t(end - meta_buf) == len);
 
@@ -49,7 +49,6 @@ int SyncFileStore::Commit(void *handle, uint64_t timestamp,
   mf.inc_offset(count);
   mf.unlock();
   assert(count == len);
-  free(meta_buf);
   return 0;
 }
 
