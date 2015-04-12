@@ -10,6 +10,7 @@
 #define VM_PERSISTENCE_PLIB_FORMAT_H_
 
 #include <cstdint>
+#include <cstring>
 
 namespace plib {
 
