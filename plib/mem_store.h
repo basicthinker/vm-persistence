@@ -15,10 +15,11 @@
 
 namespace plib {
 
-class MemStore : public VersionedPersistence {
+template <typename DataEntry>
+class MemStore : public VersionedPersistence<DataEntry> {
  public:
-  MemStore(size_t ent_size, double bandwidth);
-  void *Submit(void *data[], uint32_t n);
+  MemStore(double bandwidth) : bandwidth_(bandwidth) { }
+  void *Submit(DataEntry data[], uint32_t n) { return data; }
   int Commit(void *handle, uint64_t timestamp,
       uint64_t metadata[], uint32_t n);
 
@@ -28,37 +29,20 @@ class MemStore : public VersionedPersistence {
   double bandwidth_;
 };
 
-inline MemStore::MemStore(size_t ent_size, double bandwidth) :
-    VersionedPersistence(ent_size), bandwidth_(bandwidth) {
-}
-
-inline void *MemStore::Submit(void *data[], uint32_t n) {
-  uint32_t size = kEntrySize * n;
-
-  void *handle = malloc(size);
-  char *cur = (char *)handle;
-  for (uint32_t i = 0; i < n; ++i) {
-    memcpy(cur, data[i], kEntrySize);
-    cur += kEntrySize;
-  }
-  assert(cur - (char *)handle == size);
-  return handle;
-}
-
-inline int MemStore::Commit(void *handle, uint64_t timestamp,
+template <typename DataEntry>
+inline int MemStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
   // simulation
   using namespace std::chrono;
   using microsec = duration<double, std::ratio<1,1000000>>;
 
-  double limit = kEntrySize * n / bandwidth_;
+  double limit = sizeof(DataEntry) * n / bandwidth_;
   double time = 0;
   high_resolution_clock::time_point tp = high_resolution_clock::now();
   while (time < limit) {
-    memset(handle, 'r', kEntrySize * n);
+    memset(handle, 'r', sizeof(DataEntry) * n);
     time = duration_cast<microsec>(high_resolution_clock::now() - tp).count();
   }
-  free(handle);
 
   size_t len = MetaLength(n);
   char meta_buf[len];
@@ -73,7 +57,8 @@ inline int MemStore::Commit(void *handle, uint64_t timestamp,
   return 0;
 }
 
-inline void **MemStore::CheckoutPages(uint64_t timestamp,
+template <typename DataEntry>
+inline void **MemStore<DataEntry>::CheckoutPages(uint64_t timestamp,
     uint64_t addr[], int n) {
   return nullptr;
 }

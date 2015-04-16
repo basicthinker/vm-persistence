@@ -48,9 +48,10 @@ class File {
   std::mutex mutex_;
 };
 
-class FileStore : public VersionedPersistence {
+template <typename DataEntry>
+class FileStore : public VersionedPersistence<DataEntry> {
  public:
-  FileStore(size_t ent_size, const char *name_prefix, int num_out, int num_in);
+  FileStore(const char *name_prefix, int num_out, int num_in);
   ~FileStore();
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
@@ -71,6 +72,62 @@ class FileStore : public VersionedPersistence {
   std::atomic_uint seq_num_;
   unsigned int sync_freq_;
 };
+
+// Implementation
+
+template <typename DataEntry>
+FileStore<DataEntry>::FileStore(const char *prefix, int num_out, int num_in) :
+    seq_num_(0), sync_freq_(-1) {
+  assert(num_out < 0xff); // index is 8-bit
+
+  std::string name(prefix);
+  mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP;
+
+  std::string meta_name = name + "0";
+  int fd = open(meta_name.c_str(), O_RDWR | O_CREAT, mode);
+  assert(fd > 0);
+  lseek(fd, 0, SEEK_END);
+  out_files_.push_back(fd);
+
+  for (int i = 1; i <= num_out; ++i) {
+    std::string data_name = name + std::to_string(i);
+    int fd = open(data_name.c_str(), O_RDWR | O_CREAT, mode);
+    assert(fd > 0);
+    lseek(fd, 0, SEEK_END);
+    out_files_.push_back(fd);
+  }
+
+  for (int i = 0; i < num_in; ++i) {
+    int fd = open(meta_name.c_str(), O_RDONLY);
+    assert(fd > 0);
+    in_files_.push_back(fd);
+  }
+}
+
+template <typename DataEntry>
+FileStore<DataEntry>::~FileStore() {
+  for (File &f : out_files_) {
+    f.lock();
+    close(f.descriptor());
+  }
+
+  for (File &f : in_files_) {
+    f.lock();
+    close(f.descriptor());
+  }
+}
+
+template <typename DataEntry>
+void **FileStore<DataEntry>::CheckoutPages(uint64_t timestamp, uint64_t addr[], int n) {
+  return nullptr; //TODO
+}
+
+template <typename DataEntry>
+void FileStore<DataEntry>::DestroyPages(void *pages[], int n) {
+  for (int i = 0; i < n; ++i) {
+    free(pages[i]);
+  }
+}
 
 } // namespace plib
 

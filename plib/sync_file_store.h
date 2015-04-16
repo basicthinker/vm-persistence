@@ -11,16 +11,54 @@
 
 #include "file_store.h"
 
+#include <cstring>
+#include "format.h"
+
 namespace plib {
 
-class SyncFileStore : public FileStore {
+template <typename DataEntry>
+class SyncFileStore : public FileStore<DataEntry> {
  public:
-  SyncFileStore(size_t ent_size, const char *name, int num_out, int num_in) :
-      FileStore(ent_size, name, num_out, num_in) { }
+  SyncFileStore(const char *name, int num_out, int num_in) :
+      FileStore<DataEntry>(name, num_out, num_in) { }
 
-  void *Submit(void *data[], uint32_t n);
+  void *Submit(DataEntry data[], uint32_t n) { return data; }
   int Commit(void *handle, uint64_t timestamp, uint64_t meta[], uint32_t n);
 };
+
+template <typename DataEntry>
+int SyncFileStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
+    uint64_t metadata[], uint32_t n) {
+  unsigned int seq = this->seq_num();
+  uint8_t index = this->OutIndex(seq);
+
+  File &df = this->out_files_[index]; // data file
+  df.lock();
+  uint64_t pos = df.offset();
+  size_t count = write(df.descriptor(), handle, sizeof(DataEntry) * n);
+  df.inc_offset(count);
+  df.unlock();
+  assert(count == sizeof(DataEntry) * n);
+
+  size_t len = MetaLength(n);
+  char meta_buf[len];
+  char *end = EncodeMeta(meta_buf, timestamp, metadata, n, index, pos);
+  assert(size_t(end - meta_buf) == len);
+
+  File &mf = this->out_files_[0]; // metadata file
+  mf.lock();
+  count = write(mf.descriptor(), meta_buf, len);
+  mf.inc_offset(count);
+
+  if ((seq + 1) % this->sync_freq() == 0) {
+    for (File &f : this->out_files_) {
+      fdatasync(f.descriptor());
+    }
+  }
+  mf.unlock();
+  assert(count == len);
+  return 0;
+}
 
 } // namespace plib
 

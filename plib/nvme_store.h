@@ -19,10 +19,11 @@
 
 namespace plib {
 
-class NVMeStore : public VersionedPersistence {
+template <typename DataEntry>
+class NVMeStore : public VersionedPersistence<DataEntry> {
  public:
-  NVMeStore(size_t ent_size, int block_bits, const char *devices[], int n);
-  void *Submit(void *data[], uint32_t n);
+  NVMeStore(int block_bits, const char *devices[], int n);
+  void *Submit(DataEntry data[], uint32_t n);
   int Commit(void *handle, uint64_t timestamp,
       uint64_t metadata[], uint32_t n);
 
@@ -43,8 +44,8 @@ class NVMeStore : public VersionedPersistence {
   }
 };
 
-inline NVMeStore::NVMeStore(size_t ent_size, int blk_bits,
-    const char *dev[], int n) : VersionedPersistence(ent_size),
+template <typename DataEntry>
+inline NVMeStore<DataEntry>::NVMeStore(int blk_bits, const char *dev[], int n) :
     block_bits_(blk_bits), block_mask_((1 << blk_bits) - 1), slba_(n) {
   for (int i = 0; i < n; ++i) {
     int fd = open(dev[i], O_RDWR);
@@ -54,23 +55,20 @@ inline NVMeStore::NVMeStore(size_t ent_size, int blk_bits,
   // TODO: avoid overwriting existent data
 }
 
-inline void *NVMeStore::Submit(void *data[], uint32_t n) {
-  uint32_t size = kEntrySize * n;
+template <typename DataEntry>
+inline void *NVMeStore<DataEntry>::Submit(DataEntry data[], uint32_t n) {
+  uint32_t size = sizeof(DataEntry) * n;
 
   void *handle = malloc(NumBlocks(size) << block_bits_);
-  char *cur = (char *)handle;
-  for (uint32_t i = 0; i < n; ++i) {
-    memcpy(cur, data[i], kEntrySize);
-    cur += kEntrySize;
-  }
-  assert(cur - (char *)handle == size);
+  memcpy(handle, data, size);
   return handle;
 }
 
-inline int NVMeStore::Commit(void *handle, uint64_t timestamp,
+template <typename DataEntry>
+inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
   uint8_t index = OutIndex(timestamp);
-  uint16_t nblocks = NumBlocks(kEntrySize * n);
+  uint16_t nblocks = NumBlocks(sizeof(DataEntry) * n);
 
   struct nvme_user_io io;
   io.opcode = nvme_cmd_write;
@@ -106,7 +104,8 @@ inline int NVMeStore::Commit(void *handle, uint64_t timestamp,
   return ioctl(fildes_[0], NVME_IOCTL_SUBMIT_IO, &io);
 }
 
-inline void **NVMeStore::CheckoutPages(uint64_t timestamp,
+template <typename DataEntry>
+inline void **NVMeStore<DataEntry>::CheckoutPages(uint64_t timestamp,
     uint64_t addr[], int n) {
   return nullptr;
 }

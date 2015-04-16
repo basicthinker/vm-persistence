@@ -13,11 +13,10 @@
 
 namespace plib {
 
+template <typename DataEntry>
 class VersionedPersistence {
  public:
-  VersionedPersistence(size_t ent_size) : kEntrySize(ent_size) { }
-
-  virtual void *Submit(void *data[], uint32_t n) = 0;
+  virtual void *Submit(DataEntry data[], uint32_t n) = 0;
   virtual int Commit(void *handle, uint64_t timestamp,
       uint64_t metadata[], uint32_t n) = 0;
 
@@ -25,8 +24,6 @@ class VersionedPersistence {
   virtual void DestroyPages(void *pages[], int n) = 0;
 
   virtual ~VersionedPersistence() { }
- protected:
-  const size_t kEntrySize;
 };
 
 } // namespace plib
