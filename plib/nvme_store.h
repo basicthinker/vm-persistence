@@ -9,21 +9,26 @@
 #ifndef VM_PERSISTENCE_PLIB_NVME_STORE_H_
 #define VM_PERSISTENCE_PLIB_NVME_STORE_H_
 
-#include <vector>
 #include <atomic>
 #include <cassert>
+#include <error.h>
 #include <linux/nvme.h>
 #include <sys/ioctl.h>
 #include "format.h"
 #include "versioned_persistence.h"
+#include <iostream>
+#include <chrono>
+
+using namespace std::chrono;
+using microsec = duration<double, std::ratio<1,1000000>>;
 
 namespace plib {
 
 template <typename DataEntry>
 class NVMeStore : public VersionedPersistence<DataEntry> {
  public:
-  NVMeStore(int block_bits, const char *devices[], int n);
-  void *Submit(DataEntry data[], uint32_t n);
+  NVMeStore(int block_bits, const char *devices, uint64_t offset);
+  void *Submit(DataEntry data[], uint32_t n) { return data; }
   int Commit(void *handle, uint64_t timestamp,
       uint64_t metadata[], uint32_t n);
 
@@ -32,12 +37,10 @@ class NVMeStore : public VersionedPersistence<DataEntry> {
  private:
   const int block_bits_;
   const size_t block_mask_;
-  std::vector<int> fildes_; // index 0 is for metadata (versions)
-  std::vector<std::atomic_uint_fast64_t> slba_;
-
-  uint8_t OutIndex(uint64_t timestamp) {
-    return timestamp % (fildes_.size() - 1) + 1;
-  }
+  int fildes_;
+  std::atomic_uint_fast64_t meta_slba_;
+  std::atomic_uint_fast64_t data_slba_;
+  FlashStriper striper_;
 
   uint16_t NumBlocks(size_t size) {
     return (size >> block_bits_) + ((size & block_mask_) > 0);
@@ -45,63 +48,70 @@ class NVMeStore : public VersionedPersistence<DataEntry> {
 };
 
 template <typename DataEntry>
-inline NVMeStore<DataEntry>::NVMeStore(int blk_bits, const char *dev[], int n) :
-    block_bits_(blk_bits), block_mask_((1 << blk_bits) - 1), slba_(n) {
-  for (int i = 0; i < n; ++i) {
-    int fd = open(dev[i], O_RDWR);
-    assert(fd > 0);
-    fildes_.push_back(fd);
+inline NVMeStore<DataEntry>::NVMeStore(int blk_bits,
+    const char *dev, uint64_t offset) :
+    block_bits_(blk_bits), block_mask_((1 << blk_bits) - 1),
+    meta_slba_(0), data_slba_(offset), striper_(8, 3) {
+  fildes_ = open(dev, O_RDWR);
+  if (fildes_ < 0) {
+    std::cerr << "Failed to open " << dev << std::endl;
+    exit(EXIT_FAILURE);
   }
-  // TODO: avoid overwriting existent data
-}
-
-template <typename DataEntry>
-inline void *NVMeStore<DataEntry>::Submit(DataEntry data[], uint32_t n) {
-  uint32_t size = sizeof(DataEntry) * n;
-
-  void *handle = malloc(NumBlocks(size) << block_bits_);
-  memcpy(handle, data, size);
-  return handle;
 }
 
 template <typename DataEntry>
 inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
-  uint8_t index = OutIndex(timestamp);
-  uint16_t nblocks = NumBlocks(sizeof(DataEntry) * n);
-
   struct nvme_user_io io;
-  io.opcode = nvme_cmd_write;
-  io.flags = 0;
-  io.control = 0;
-  io.metadata = (unsigned long)0;
-  io.addr = (unsigned long)handle;
-  io.nblocks = nblocks - 1;
-  io.slba = slba_[index].fetch_add(nblocks, std::memory_order_relaxed);
-  io.dsmgmt = NVME_RW_DSM_LATENCY_LOW | NVME_RW_DSM_SEQ_REQ;
-  io.reftag = 0;
-  io.apptag = 0;
-  io.appmask = 0;
+  memset(&io, 0, sizeof(io));
+  int err;
+#ifdef PERF_TRACE
+  high_resolution_clock::time_point t1, t2;
+#endif
+  uint16_t nblocks = NumBlocks(sizeof(DataEntry) * n);
+  uint64_t slba = data_slba_.fetch_add(nblocks, std::memory_order_relaxed);
 
-  int err = ioctl(fildes_[index], NVME_IOCTL_SUBMIT_IO, &io);
-  if (err) return err;
-  free(handle);
+  for (unsigned long i = 0; i < nblocks; ++i) {
+    io.opcode = nvme_cmd_write;
+    io.metadata = 0;
+    io.addr = (unsigned long)handle + (i << block_bits_);
+    io.slba = striper_.Translate(slba + i);
+    io.nblocks = 0;
+    io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
+#ifdef PERF_TRACE
+    high_resolution_clock::time_point t1 = high_resolution_clock::now();
+#endif
+    err = ioctl(fildes_, NVME_IOCTL_SUBMIT_IO, &io);
+    if (err) return err;
+#ifdef PERF_TRACE
+    high_resolution_clock::time_point t2 = high_resolution_clock::now();
+    std::cout << io.slba << '\t' << io.nblocks << '\t';
+    std::cout << duration_cast<microsec>(t2 - t1).count() << std::endl;
+#endif
+  }
 
   nblocks = NumBlocks(MetaLength(n));
+  slba = meta_slba_.fetch_add(nblocks, std::memory_order_relaxed);
   char meta_buf[nblocks << block_bits_];
-  io.opcode = nvme_cmd_write;
-  io.flags = 0;
-  io.control = 0;
-  io.metadata = (unsigned long)0;
-  io.addr = (unsigned long)meta_buf;
-  io.nblocks = nblocks - 1;
-  io.slba = slba_[0].fetch_add(nblocks, std::memory_order_relaxed);
-  io.dsmgmt = NVME_RW_DSM_LATENCY_LOW | NVME_RW_DSM_SEQ_REQ;
-  io.reftag = 0;
-  io.apptag = 0;
-  io.appmask = 0;
-
-  return ioctl(fildes_[0], NVME_IOCTL_SUBMIT_IO, &io);
+  for (unsigned long i = 0; i < nblocks; ++i) {
+    io.opcode = nvme_cmd_write;
+    io.metadata = 0;
+    io.addr = (unsigned long)meta_buf + (i << block_bits_);
+    io.slba = striper_.Translate(slba + i);
+    io.nblocks = 0;
+    io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
+#ifdef PERF_TRACE
+    t1 = high_resolution_clock::now();
+#endif
+    err = ioctl(fildes_, NVME_IOCTL_SUBMIT_IO, &io);
+    if (err) return err;
+#ifdef PERF_TRACE
+    t2 = high_resolution_clock::now();
+    std::cout << io.slba << '\t' << io.nblocks << '\t';
+    std::cout << duration_cast<microsec>(t2 - t1).count() << std::endl;
+#endif
+  }
+  return err;
 }
 
 template <typename DataEntry>

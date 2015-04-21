@@ -56,6 +56,30 @@ inline char *EncodeMeta(char *mem, uint64_t timestamp,
   return cur;
 }
 
+// SSD data striping
+
+class FlashStriper {
+  public:
+    FlashStriper(int width_bits, int sector_bits) :
+        width_(width_bits), sector_(sector_bits),
+        width_mask_((1 << width_) - 1),
+        unit_mask_((1 << (width_ + sector_)) - 1), index_mask_(~unit_mask_) {
+    }
+
+    uint64_t Translate(uint64_t lba) {
+      uint64_t unit = lba & unit_mask_;
+      unit = ((unit & width_mask_) << sector_) + (unit >> width_);
+      return (lba & index_mask_) + unit;
+    }
+
+ private:
+  int width_;
+  int sector_;
+  uint64_t width_mask_;
+  uint64_t unit_mask_;
+  uint64_t index_mask_;
+};
+
 } // namespace plib
 
 #endif // VM_PERSISTENCE_PLIB_FORMAT_H_
