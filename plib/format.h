@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <zlib.h>
 
 namespace plib {
 
@@ -37,6 +38,19 @@ inline uint8_t ParseIndexedPosition(uint64_t *pos) {
   return index;
 }
 
+// Data format
+
+inline size_t CRC32DataLength(size_t nbytes) {
+  return sizeof(uint64_t) + nbytes + sizeof(uint32_t); // plus version and CRC32
+}
+
+inline char *CRC32DataEncode(char *mem,
+    uint64_t timestamp, void *data, size_t nbytes) {
+  mem = Serialize(mem, timestamp);
+  mem = Serialize(mem, data, nbytes);
+  return Serialize(mem, crc32(0, (unsigned char *)mem, nbytes));
+}
+
 // Meta format
 
 inline size_t MetaLength(uint32_t n) {
@@ -47,13 +61,13 @@ inline size_t MetaLength(uint32_t n) {
 
 inline char *EncodeMeta(char *mem, uint64_t timestamp,
     uint64_t meta[], uint32_t n, uint8_t index, uint64_t pos) {
-  char *cur = Serialize(mem, timestamp);
-  cur = Serialize(cur, ToIndexedPosition(pos, index));
-  cur = Serialize(cur, n);
+  mem = Serialize(mem, timestamp);
+  mem = Serialize(mem, ToIndexedPosition(pos, index));
+  mem = Serialize(mem, n);
   for (uint32_t i = 0; i < n; ++i) {
-    cur = Serialize(cur, meta[i]);
+    mem = Serialize(mem, meta[i]);
   }
-  return cur;
+  return mem;
 }
 
 // SSD data striping
