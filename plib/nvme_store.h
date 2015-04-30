@@ -34,6 +34,8 @@ class NVMeStore : public VersionedPersistence<DataEntry> {
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
   void DestroyPages(void *pages[], int n) { }
+
+  const size_t kCRC32Threshold = 10240; // 11.6 ns @ 2.50 GHz
  private:
   const int block_bits_;
   const size_t block_mask_;
@@ -45,6 +47,8 @@ class NVMeStore : public VersionedPersistence<DataEntry> {
   uint16_t NumBlocks(size_t size) {
     return (size >> block_bits_) + ((size & block_mask_) > 0);
   }
+
+  int Write(uint64_t slba, void *data, uint16_t nblocks);
 };
 
 template <typename DataEntry>
@@ -62,21 +66,39 @@ inline NVMeStore<DataEntry>::NVMeStore(int blk_bits,
 template <typename DataEntry>
 inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
+  size_t data_size = sizeof(DataEntry) * n;
+  if (data_size < kCRC32Threshold) {
+    uint16_t nblocks = NumBlocks(CRC32DataLength(data_size));
+    char data_buf[nblocks << block_bits_];
+    CRC32DataEncode(data_buf, timestamp, handle, data_size);
+    uint64_t slba = data_slba_.fetch_add(nblocks, std::memory_order_relaxed);
+    return Write(slba, data_buf, nblocks);
+  } else {
+    uint16_t nblocks = NumBlocks(data_size);
+    uint64_t slba = data_slba_.fetch_add(nblocks, std::memory_order_relaxed);
+    int err = Write(slba, handle, nblocks);
+    if (err) return err;
+
+    nblocks = NumBlocks(MetaLength(n));
+    char meta_buf[nblocks << block_bits_];
+    EncodeMeta(meta_buf, timestamp, metadata, n, 0, slba);
+    slba = meta_slba_.fetch_add(nblocks, std::memory_order_relaxed);
+    return Write(slba, meta_buf, nblocks);
+  }
+}
+
+template <typename DataEntry>
+int NVMeStore<DataEntry>::Write(uint64_t slba, void *data, uint16_t nblocks) {
   struct nvme_user_io io;
   memset(&io, 0, sizeof(io));
-  int err;
 #ifdef PERF_TRACE
   high_resolution_clock::time_point t1, t2;
 #endif
-  uint16_t nblocks = NumBlocks(sizeof(DataEntry) * n);
-  uint64_t slba = data_slba_.fetch_add(nblocks, std::memory_order_relaxed);
-
+  int err;
   for (unsigned long i = 0; i < nblocks; ++i) {
     io.opcode = nvme_cmd_write;
-    io.metadata = 0;
-    io.addr = (unsigned long)handle + (i << block_bits_);
+    io.addr = (unsigned long)data + (i << block_bits_);
     io.slba = striper_.Translate(slba + i);
-    io.nblocks = 0;
     io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
 #ifdef PERF_TRACE
     high_resolution_clock::time_point t1 = high_resolution_clock::now();
@@ -89,29 +111,7 @@ inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     std::cout << duration_cast<microsec>(t2 - t1).count() << std::endl;
 #endif
   }
-
-  nblocks = NumBlocks(MetaLength(n));
-  slba = meta_slba_.fetch_add(nblocks, std::memory_order_relaxed);
-  char meta_buf[nblocks << block_bits_];
-  for (unsigned long i = 0; i < nblocks; ++i) {
-    io.opcode = nvme_cmd_write;
-    io.metadata = 0;
-    io.addr = (unsigned long)meta_buf + (i << block_bits_);
-    io.slba = striper_.Translate(slba + i);
-    io.nblocks = 0;
-    io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
-#ifdef PERF_TRACE
-    t1 = high_resolution_clock::now();
-#endif
-    err = ioctl(fildes_, NVME_IOCTL_SUBMIT_IO, &io);
-    if (err) return err;
-#ifdef PERF_TRACE
-    t2 = high_resolution_clock::now();
-    std::cout << io.slba << '\t' << io.nblocks << '\t';
-    std::cout << duration_cast<microsec>(t2 - t1).count() << std::endl;
-#endif
-  }
-  return err;
+  return 0;
 }
 
 template <typename DataEntry>
