@@ -19,8 +19,8 @@ namespace plib {
 template <typename DataEntry>
 class SyncFileStore : public FileStore<DataEntry> {
  public:
-  SyncFileStore(const char *name, int num_out, int num_in) :
-      FileStore<DataEntry>(name, num_out, num_in) { }
+  SyncFileStore(const char *name, int num_files) :
+      FileStore<DataEntry>(name, num_files) { }
 
   void *Submit(DataEntry data[], uint32_t n) { return data; }
   int Commit(void *handle, uint64_t timestamp, uint64_t meta[], uint32_t n);

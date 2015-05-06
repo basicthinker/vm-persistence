@@ -51,7 +51,7 @@ class File {
 template <typename DataEntry>
 class FileStore : public VersionedPersistence<DataEntry> {
  public:
-  FileStore(const char *name_prefix, int num_out, int num_in);
+  FileStore(const char *name_prefix, int num_files);
   ~FileStore();
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
@@ -61,8 +61,7 @@ class FileStore : public VersionedPersistence<DataEntry> {
   void set_sync_freq(unsigned int freq) { sync_freq_ = freq; }
 
  protected:
-  std::vector<File> out_files_; // index 0 is for metadata (versions) 
-  std::vector<File> in_files_;
+  std::vector<File> out_files_; // index 0 is reserved for metadata (versions)
 
   unsigned int seq_num() { return seq_num_++; }
   uint8_t OutIndex(unsigned int seq) {
@@ -76,9 +75,9 @@ class FileStore : public VersionedPersistence<DataEntry> {
 // Implementation
 
 template <typename DataEntry>
-FileStore<DataEntry>::FileStore(const char *prefix, int num_out, int num_in) :
+FileStore<DataEntry>::FileStore(const char *prefix, int num_files) :
     seq_num_(0), sync_freq_(-1) {
-  assert(num_out < 0xff); // index is 8-bit
+  assert(num_files < 0xff); // index is 8-bit
 
   std::string name(prefix);
   mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP;
@@ -89,29 +88,18 @@ FileStore<DataEntry>::FileStore(const char *prefix, int num_out, int num_in) :
   lseek(fd, 0, SEEK_END);
   out_files_.push_back(fd);
 
-  for (int i = 1; i <= num_out; ++i) {
+  for (int i = 1; i <= num_files; ++i) {
     std::string data_name = name + std::to_string(i);
     int fd = open(data_name.c_str(), O_RDWR | O_CREAT, mode);
     assert(fd > 0);
     lseek(fd, 0, SEEK_END);
     out_files_.push_back(fd);
   }
-
-  for (int i = 0; i < num_in; ++i) {
-    int fd = open(meta_name.c_str(), O_RDONLY);
-    assert(fd > 0);
-    in_files_.push_back(fd);
-  }
 }
 
 template <typename DataEntry>
 FileStore<DataEntry>::~FileStore() {
   for (File &f : out_files_) {
-    f.lock();
-    close(f.descriptor());
-  }
-
-  for (File &f : in_files_) {
     f.lock();
     close(f.descriptor());
   }
