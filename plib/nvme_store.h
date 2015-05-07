@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <error.h>
 #include <linux/nvme.h>
 #include <sys/ioctl.h>
@@ -45,7 +46,9 @@ class NVMeStore : public VersionedPersistence<DataEntry> {
   FlashStriper striper_;
 
   uint16_t NumBlocks(size_t size) {
-    return (size >> block_bits_) + ((size & block_mask_) > 0);
+    size_t n = (size >> block_bits_) + ((size & block_mask_) > 0);
+    assert(n < UINT16_MAX);
+    return n;
   }
 
   int Write(uint64_t slba, void *data, uint16_t nblocks);
@@ -89,8 +92,7 @@ inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
 
 template <typename DataEntry>
 int NVMeStore<DataEntry>::Write(uint64_t slba, void *data, uint16_t nblocks) {
-  struct nvme_user_io io;
-  memset(&io, 0, sizeof(io));
+  struct nvme_user_io io = {};
 #ifdef PERF_TRACE
   high_resolution_clock::time_point t1, t2;
 #endif

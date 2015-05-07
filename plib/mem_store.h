@@ -10,6 +10,7 @@
 #define VM_PERSISTENCE_PLIB_MEM_STORE_H_
 
 #include <chrono>
+#include <libpmem.h>
 #include "format.h"
 #include "versioned_persistence.h"
 
@@ -33,6 +34,16 @@ template <typename DataEntry>
 inline int MemStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
   // simulation
+  size_t data_size = sizeof(DataEntry) * n;
+  // TODO judge size
+  size_t len = CRC32DataLength(data_size);
+  char data_buf[len];
+  CRC32DataEncode(data_buf, timestamp, handle, data_size);
+  pmem_flush(data_buf, len);
+  for (int i = 0; i < 7; ++i) {
+    memset(data_buf, i, len);
+  }
+  /*
   using namespace std::chrono;
   using microsec = duration<double, std::ratio<1,1000000>>;
 
@@ -54,6 +65,7 @@ inline int MemStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     assert(size_t(end - meta_buf) == len);
     time = duration_cast<microsec>(high_resolution_clock::now() - tp).count();
   }
+  */
   return 0;
 }
 
