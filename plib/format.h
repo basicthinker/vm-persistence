@@ -48,7 +48,8 @@ inline char *CRC32DataEncode(char *mem,
     uint64_t timestamp, void *data, size_t nbytes) {
   mem = Serialize(mem, timestamp);
   mem = Serialize(mem, data, nbytes);
-  return Serialize(mem, crc32(0, (unsigned char *)mem, nbytes));
+  uint32_t checksum = crc32(0, (unsigned char *)mem, nbytes);
+  return Serialize(mem, checksum);
 }
 
 // Meta format

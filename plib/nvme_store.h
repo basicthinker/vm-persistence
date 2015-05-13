@@ -9,16 +9,16 @@
 #ifndef VM_PERSISTENCE_PLIB_NVME_STORE_H_
 #define VM_PERSISTENCE_PLIB_NVME_STORE_H_
 
-#include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
+#include <atomic>
+#include <chrono>
 #include <error.h>
 #include <linux/nvme.h>
 #include <sys/ioctl.h>
 #include "format.h"
 #include "versioned_persistence.h"
-#include <iostream>
-#include <chrono>
 
 using namespace std::chrono;
 using microsec = duration<double, std::ratio<1,1000000>>;
@@ -28,16 +28,17 @@ namespace plib {
 template <typename DataEntry>
 class NVMeStore : public VersionedPersistence<DataEntry> {
  public:
-  NVMeStore(int block_bits, const char *devices, uint64_t offset);
+  NVMeStore(int block_bits, const char *device, uint64_t offset);
   void *Submit(DataEntry data[], uint32_t n) { return data; }
   int Commit(void *handle, uint64_t timestamp,
       uint64_t metadata[], uint32_t n);
 
   void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
-  void DestroyPages(void *pages[], int n) { }
+  void DestroyPages(void *pages[], int n) {}
 
   const size_t kCRC32Threshold = 10240; // 11.6 ns @ 2.50 GHz
- private:
+
+ protected:
   const int block_bits_;
   const size_t block_mask_;
   int fildes_;
@@ -60,15 +61,14 @@ inline NVMeStore<DataEntry>::NVMeStore(int blk_bits,
     block_bits_(blk_bits), block_mask_((1 << blk_bits) - 1),
     meta_slba_(0), data_slba_(offset), striper_(8, 3) {
   fildes_ = open(dev, O_RDWR);
-  if (fildes_ < 0) {
-    std::cerr << "Failed to open " << dev << std::endl;
-    exit(EXIT_FAILURE);
-  }
+  if (fildes_ < 0) perror(dev);
 }
 
 template <typename DataEntry>
 inline int NVMeStore<DataEntry>::Commit(void *handle, uint64_t timestamp,
     uint64_t metadata[], uint32_t n) {
+  if (fildes_ < 0) return -EIO;
+
   size_t data_size = sizeof(DataEntry) * n;
   if (data_size < kCRC32Threshold) {
     uint16_t nblocks = NumBlocks(CRC32DataLength(data_size));
