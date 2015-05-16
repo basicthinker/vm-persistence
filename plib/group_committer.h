@@ -9,16 +9,17 @@
 #ifndef VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
 #define VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
 
-#include <cassert>
-#include <condition_variable>
-#include <cstdint>
 #include <atomic>
-#include <mutex>
+#include <cassert>
+#include <cstdint>
 #include <thread>
 #include <vector>
+
 #include <error.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <sys/ioctl.h>
+
 #include "format.h"
 #include "group_buffer.h"
 #include "versioned_persistence.h"
@@ -43,11 +44,9 @@ class GroupCommitter : public VersionedPersistence<DataEntry> {
 
   GroupBuffer buffer_;
   std::vector<std::thread> flushers_;
-  std::condition_variable ready_;
-  std::mutex mutex_;
+  sem_t flush_sem_;
 
-  static void Flush(GroupBuffer *buffer,
-    std::condition_variable *ready, std::mutex *mutex);
+  static void Flush(GroupBuffer *buffer, sem_t *flush_sem_);
 };
 
 template <typename DataEntry>
@@ -60,8 +59,9 @@ inline GroupCommitter<DataEntry>::GroupCommitter(
     return;
   }*/
 
+  sem_init(&flush_sem_, 0, 0);
   for (int i = 0; i < nlanes; ++i) {
-    flushers_.push_back(std::thread(Flush, &buffer_, &ready_, &mutex_));
+    flushers_.push_back(std::thread(Flush, &buffer_, &flush_sem_));
   }
 }
 
@@ -75,27 +75,24 @@ inline int GroupCommitter<DataEntry>::Commit(void *handle, uint64_t timestamp,
   char data_buf[len];
   CRC32DataEncode(data_buf, timestamp, handle, data_size);
 
-  sem_t sem;
-  sem_init(&sem, 0, 1);
+  sem_t commit_sem;
+  sem_init(&commit_sem, 0, 0);
  
-  ready_.notify_one();
-  int8_t *dest = buffer_.Lock(len);
+  int8_t *dest = buffer_.Lock(len, &flush_sem_);
   memcpy(dest, data_buf, len);
-  buffer_.Release(dest, &sem);
+  buffer_.Release(dest, &commit_sem);
 
-  return sem_wait(&sem);
+  return sem_wait(&commit_sem);
 }
 
 template <typename DataEntry>
-void GroupCommitter<DataEntry>::Flush(
-    GroupBuffer *buffer, std::condition_variable *ready, std::mutex *mutex) {
-  std::unique_lock<std::mutex> lock(*mutex);
+void GroupCommitter<DataEntry>::Flush(GroupBuffer *buffer, sem_t *flush_sem) {
   while (true) {
-    ready->wait(lock);
+    sem_wait(flush_sem);
     int8_t *mem = buffer->BeginFlush();
     // TODO
     for (int i = 0; i < 100000; ++i) {}
-    printf("flushed %p\n", mem);
+    printf("GroupCommitter::Flush on %p\n", mem);
     buffer->EndFlush(mem);
   }
 }

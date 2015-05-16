@@ -32,8 +32,8 @@ class GroupBuffer {
   int8_t *buffer(int index) const { return buffer_ + single_size_ * index; }
   int num_buffers() const { return num_lanes_ << 1; }
 
-  int8_t *Lock(int len);
-  void Release(int8_t *mem, sem_t *sem);
+  int8_t *Lock(int len, sem_t *flush_sem);
+  void Release(int8_t *mem, sem_t *commit_sem);
 
   int8_t *BeginFlush();
   void EndFlush(int8_t *buffer);
@@ -48,7 +48,7 @@ class GroupBuffer {
   int index_;
   int offset_;
   BufferMeta *meta_;
-  pthread_spinlock_t lock_;
+  pthread_spinlock_t lock_; // for any update on the overall buffer state
 };
 
 inline GroupBuffer::GroupBuffer(int num_lanes, int single_size) :
@@ -60,28 +60,33 @@ inline GroupBuffer::GroupBuffer(int num_lanes, int single_size) :
 }
 
 inline GroupBuffer::~GroupBuffer() {
+  pthread_spin_destroy(&lock_);
   delete[] meta_;
   free(buffer_);
 }
 
+// Assumes lock_ is locked and index_ is not EMPTY
 inline int GroupBuffer::FindEmpty() {
   while (true) {
-    int index = -1;
+    int idx = -1;
     pthread_spin_unlock(&lock_);
     for (int i = 0; i < num_buffers(); ++i) {
       if (meta_[i].flag == BufferMeta::EMPTY) {
-        index = i;
+        idx = i;
         break;
       }
     }
     pthread_spin_lock(&lock_);
-    if (index > 0 && meta_[index].flag == BufferMeta::EMPTY) {
-      return index;
+    if (meta_[index_].flag == BufferMeta::EMPTY) {
+      return index_;
+    }
+    if (idx > 0 && meta_[idx].flag == BufferMeta::EMPTY) {
+      return idx;
     }
   }
 }
 
-inline int8_t *GroupBuffer::Lock(int len) {
+inline int8_t *GroupBuffer::Lock(int len, sem_t *flush_sem) {
   pthread_spin_lock(&lock_);
   if (meta_[index_].flag != BufferMeta::EMPTY) {
     index_ = FindEmpty();
@@ -89,19 +94,27 @@ inline int8_t *GroupBuffer::Lock(int len) {
   } else {
     if (offset_ + len > single_size_) {
       meta_[index_].flag = BufferMeta::FULL;
+      sem_post(flush_sem);
       index_ = FindEmpty();
       offset_ = 0;
     }
   }
 
   int8_t *p = buffer(index_) + offset_;
+#ifdef TRACE
+  printf("GroupBuffer::Lock on %d [%d] (%d)\n",
+         index_, offset_, meta_[index_].flag);
+#endif
   offset_ += len;
   return p;
 }
 
-inline void GroupBuffer::Release(int8_t *mem, sem_t *sem) {
+inline void GroupBuffer::Release(int8_t *mem, sem_t *commit_sem) {
   assert((mem - buffer_) / single_size_ == index_);
-  meta_[index_].sems.push_back(sem);
+  meta_[index_].sems.push_back(commit_sem);
+#ifdef TRACE
+  printf("GroupBuffer::Release on %d (%d)\n", index_, meta_[index_].flag);
+#endif
   pthread_spin_unlock(&lock_);
 }
 
@@ -122,20 +135,26 @@ inline int8_t *GroupBuffer::BeginFlush() {
     i_busy = index_;
   }
   pthread_spin_unlock(&lock_);
+#ifdef TRACE
+  printf("GroupBuffer::BeginFlush on %d (=>%d)\n", i_busy, meta_[i_busy].flag);
+#endif
   return buffer(i_busy);
 }
 
 inline void GroupBuffer::EndFlush(int8_t *buf) {
-  int i = (buf - buffer_) / single_size_;
-  assert(i < num_buffers());
+  int idx = (buf - buffer_) / single_size_;
+  assert(idx < num_buffers());
 
-  for (sem_t *sem : meta_[i].sems) {
+  for (sem_t *sem : meta_[idx].sems) {
     sem_post(sem);
   }
-  meta_[i].sems.clear();
+  meta_[idx].sems.clear();
 
-  assert(meta_[i].flag == BufferMeta::BUSY);
-  meta_[i].flag = BufferMeta::EMPTY;
+  assert(meta_[idx].flag == BufferMeta::BUSY);
+  meta_[idx].flag = BufferMeta::EMPTY;
+#ifdef TRACE
+  printf("GroupBuffer::EndFlush on %d (%d)\n", idx, meta_[idx].flag);
+#endif
 }
 
 } // namespace plib
