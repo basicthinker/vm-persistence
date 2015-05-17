@@ -9,9 +9,10 @@
 #ifndef VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
 #define VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
 
-#include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -87,12 +88,17 @@ inline int GroupCommitter<DataEntry>::Commit(void *handle, uint64_t timestamp,
 
 template <typename DataEntry>
 void GroupCommitter<DataEntry>::Flush(GroupBuffer *buffer, sem_t *flush_sem) {
+  using namespace std::chrono;
+  using microsec = duration<double, std::ratio<1,1000000>>;
+
   while (true) {
     sem_wait(flush_sem);
     int8_t *mem = buffer->BeginFlush();
     // TODO
+    high_resolution_clock::time_point t1 = high_resolution_clock::now();
     for (int i = 0; i < 100000; ++i) {}
-    printf("GroupCommitter::Flush on %p\n", mem);
+    high_resolution_clock::time_point t2 = high_resolution_clock::now();
+    printf("flushed for %f usec\n", duration_cast<microsec>(t2 - t1).count());
     buffer->EndFlush(mem);
   }
 }

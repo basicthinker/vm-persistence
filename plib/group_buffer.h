@@ -19,9 +19,10 @@ struct BufferMeta {
   enum Flag { EMPTY, FULL, BUSY };
 
   Flag flag;
+  int offset;
   std::vector<sem_t *> sems;
 
-  BufferMeta() : flag(EMPTY) {}
+  BufferMeta() : flag(EMPTY), offset(0) {}
 };
 
 class GroupBuffer {
@@ -39,21 +40,19 @@ class GroupBuffer {
   void EndFlush(int8_t *buffer);
 
  private:
-  int FindEmpty();
+  void FindEmpty();
 
   int8_t *buffer_;
   const int num_lanes_;
   const int single_size_;
 
   int index_;
-  int offset_;
   BufferMeta *meta_;
   pthread_spinlock_t lock_; // for any update on the overall buffer state
 };
 
 inline GroupBuffer::GroupBuffer(int num_lanes, int single_size) :
-    num_lanes_(num_lanes), single_size_(single_size),
-    index_(0), offset_(0) {
+    num_lanes_(num_lanes), single_size_(single_size), index_(0) {
   buffer_ = (int8_t *)malloc(num_buffers() * single_size_);
   meta_ = new BufferMeta[num_buffers()];
   pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE);
@@ -66,7 +65,7 @@ inline GroupBuffer::~GroupBuffer() {
 }
 
 // Assumes lock_ is locked and index_ is not EMPTY
-inline int GroupBuffer::FindEmpty() {
+inline void GroupBuffer::FindEmpty() {
   while (true) {
     int idx = -1;
     pthread_spin_unlock(&lock_);
@@ -77,11 +76,13 @@ inline int GroupBuffer::FindEmpty() {
       }
     }
     pthread_spin_lock(&lock_);
-    if (meta_[index_].flag == BufferMeta::EMPTY) {
-      return index_;
+    if (meta_[index_].flag == BufferMeta::EMPTY) { // others have found
+      return;
     }
-    if (idx > 0 && meta_[idx].flag == BufferMeta::EMPTY) {
-      return idx;
+    if (idx >= 0 && meta_[idx].flag == BufferMeta::EMPTY) {
+      index_ = idx;
+      assert(meta_[index_].offset == 0);
+      return;
     }
   }
 }
@@ -89,56 +90,61 @@ inline int GroupBuffer::FindEmpty() {
 inline int8_t *GroupBuffer::Lock(int len, sem_t *flush_sem) {
   pthread_spin_lock(&lock_);
   if (meta_[index_].flag != BufferMeta::EMPTY) {
-    index_ = FindEmpty();
-    offset_ = 0;
-  } else {
-    if (offset_ + len > single_size_) {
-      meta_[index_].flag = BufferMeta::FULL;
-      sem_post(flush_sem);
-      index_ = FindEmpty();
-      offset_ = 0;
-    }
+    FindEmpty();
+  }
+  while (meta_[index_].offset + len > single_size_) {
+    meta_[index_].flag = BufferMeta::FULL;
+    sem_post(flush_sem);
+    FindEmpty();
   }
 
-  int8_t *p = buffer(index_) + offset_;
+  int &offset = meta_[index_].offset;
+  int8_t *p = buffer(index_) + offset;
 #ifdef TRACE
-  printf("GroupBuffer::Lock on %d [%d] (%d)\n",
-         index_, offset_, meta_[index_].flag);
+  printf("<%lu> GroupBuffer::Lock on %d [%d] (%d)\n",
+         std::hash<std::thread::id>()(std::this_thread::get_id()),
+         index_, offset, meta_[index_].flag);
 #endif
-  offset_ += len;
+  offset += len;
   return p;
 }
 
 inline void GroupBuffer::Release(int8_t *mem, sem_t *commit_sem) {
   assert((mem - buffer_) / single_size_ == index_);
   meta_[index_].sems.push_back(commit_sem);
-#ifdef TRACE
-  printf("GroupBuffer::Release on %d (%d)\n", index_, meta_[index_].flag);
-#endif
   pthread_spin_unlock(&lock_);
 }
 
 inline int8_t *GroupBuffer::BeginFlush() {
-  int i_busy = -1;
-  pthread_spin_lock(&lock_);
-  for (int i = 0; i < num_buffers(); ++i) {
-    if (meta_[i].flag == BufferMeta::FULL) {
-      meta_[i].flag = BufferMeta::BUSY;
-      i_busy = i;
+  int idx = -1;
+  while (true) {
+    for (int i = 0; i < num_buffers(); ++i) {
+      if (meta_[i].flag == BufferMeta::FULL) {
+        idx = i;
+        break;
+      }
+    }
+    pthread_spin_lock(&lock_);
+    if (meta_[idx].flag == BufferMeta::FULL) {
       break;
+    } else {
+      pthread_spin_unlock(&lock_);
     }
   }
 
-  if (i_busy < 0) {
-    assert(meta_[index_].flag == BufferMeta::EMPTY);
-    meta_[index_].flag = BufferMeta::BUSY;
-    i_busy = index_;
-  }
-  pthread_spin_unlock(&lock_);
+  meta_[idx].flag = BufferMeta::BUSY;
 #ifdef TRACE
-  printf("GroupBuffer::BeginFlush on %d (=>%d)\n", i_busy, meta_[i_busy].flag);
+  printf("Waiting queues:");
+  for (int i = 0; i < num_buffers(); ++i) {
+    printf("\t%lu [%d] (%d)",
+           meta_[i].sems.size(), meta_[i].offset, meta_[i].flag);
+  }
+  printf("\n<%lu> GroupBuffer::BeginFlush on %d (=>%d)\n",
+         std::hash<std::thread::id>()(std::this_thread::get_id()),
+         idx, meta_[idx].flag);
 #endif
-  return buffer(i_busy);
+  pthread_spin_unlock(&lock_);
+  return buffer(idx);
 }
 
 inline void GroupBuffer::EndFlush(int8_t *buf) {
@@ -151,9 +157,12 @@ inline void GroupBuffer::EndFlush(int8_t *buf) {
   meta_[idx].sems.clear();
 
   assert(meta_[idx].flag == BufferMeta::BUSY);
+  meta_[idx].offset = 0;
   meta_[idx].flag = BufferMeta::EMPTY;
 #ifdef TRACE
-  printf("GroupBuffer::EndFlush on %d (%d)\n", idx, meta_[idx].flag);
+  printf("<%lu> GroupBuffer::EndFlush on %d (%d)\n",
+         std::hash<std::thread::id>()(std::this_thread::get_id()),
+         idx, meta_[idx].flag);
 #endif
 }
 
