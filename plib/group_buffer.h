@@ -32,6 +32,7 @@ class GroupBuffer {
 
   int8_t *buffer(int index) const { return buffer_ + single_size_ * index; }
   int num_buffers() const { return num_lanes_ << 1; }
+  int single_size() const { return single_size_; }
 
   int8_t *Lock(int len, sem_t *flush_sem);
   void Release(int8_t *mem, sem_t *commit_sem);
@@ -174,7 +175,7 @@ inline bool GroupBuffer::EndFlush(int8_t *buf) {
     return false;
   }
 
-  printf("Final clear...\n");
+  //printf("Final clear...\n");
 
   idx = -1;
   for (int i = 0; i < num_buffers(); ++i) {
