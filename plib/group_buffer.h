@@ -37,10 +37,12 @@ class GroupBuffer {
   void Release(int8_t *mem, sem_t *commit_sem);
 
   int8_t *BeginFlush();
-  void EndFlush(int8_t *buffer);
+  bool EndFlush(int8_t *buffer); // Returns whether to clear
 
  private:
   void FindEmpty();
+  bool AllEmpty();
+  void NotifyThreads(int index);
 
   int8_t *buffer_;
   const int num_lanes_;
@@ -147,14 +149,11 @@ inline int8_t *GroupBuffer::BeginFlush() {
   return buffer(idx);
 }
 
-inline void GroupBuffer::EndFlush(int8_t *buf) {
+inline bool GroupBuffer::EndFlush(int8_t *buf) {
   int idx = (buf - buffer_) / single_size_;
   assert(idx < num_buffers());
 
-  for (sem_t *sem : meta_[idx].sems) {
-    sem_post(sem);
-  }
-  meta_[idx].sems.clear();
+  NotifyThreads(idx);
 
   assert(meta_[idx].flag == BufferMeta::BUSY);
   meta_[idx].offset = 0;
@@ -164,6 +163,64 @@ inline void GroupBuffer::EndFlush(int8_t *buf) {
          std::hash<std::thread::id>()(std::this_thread::get_id()),
          idx, meta_[idx].flag);
 #endif
+
+  if (!AllEmpty()) return false; // no need for clear yet
+
+  std::this_thread::sleep_for(std::chrono::microseconds(1));
+ 
+  pthread_spin_lock(&lock_);
+  if (!AllEmpty()) {
+    pthread_spin_unlock(&lock_);
+    return false;
+  }
+
+  printf("Final clear...\n");
+
+  idx = -1;
+  for (int i = 0; i < num_buffers(); ++i) {
+    if (meta_[i].offset) {
+      assert(idx == -1);
+      idx = i;
+    }
+  }
+  if (idx < 0) { // already clear
+    pthread_spin_unlock(&lock_);
+    return false;
+  }
+
+  int offset;
+  do {
+    offset = meta_[idx].offset;
+    NotifyThreads(idx);
+    pthread_spin_unlock(&lock_);
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+    pthread_spin_lock(&lock_);
+    if (meta_[idx].flag != BufferMeta::EMPTY) {
+      pthread_spin_unlock(&lock_);
+      return false;
+    }
+  } while (offset != meta_[idx].offset);
+  if (offset) meta_[idx].flag = BufferMeta::FULL;
+  pthread_spin_unlock(&lock_);
+  return offset;
+}
+
+// Utils
+
+inline bool GroupBuffer::AllEmpty() {
+  for (int i = 0; i < num_buffers(); ++i) {
+    if (meta_[i].flag != BufferMeta::EMPTY) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline void GroupBuffer::NotifyThreads(int index) {
+  for (sem_t *sem : meta_[index].sems) {
+    sem_post(sem);
+  }
+  meta_[index].sems.clear();
 }
 
 } // namespace plib

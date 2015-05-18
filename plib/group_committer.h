@@ -93,13 +93,15 @@ void GroupCommitter<DataEntry>::Flush(GroupBuffer *buffer, sem_t *flush_sem) {
 
   while (true) {
     sem_wait(flush_sem);
-    int8_t *mem = buffer->BeginFlush();
-    // TODO
-    high_resolution_clock::time_point t1 = high_resolution_clock::now();
-    for (int i = 0; i < 100000; ++i) {}
-    high_resolution_clock::time_point t2 = high_resolution_clock::now();
-    printf("flushed for %f usec\n", duration_cast<microsec>(t2 - t1).count());
-    buffer->EndFlush(mem);
+    int8_t *mem;
+    do {
+      mem = buffer->BeginFlush();
+      // TODO
+      high_resolution_clock::time_point t1 = high_resolution_clock::now();
+      for (int i = 0; i < 100000; ++i) {}
+      high_resolution_clock::time_point t2 = high_resolution_clock::now();
+      printf("flushed for %f usec\n", duration_cast<microsec>(t2 - t1).count());
+    } while (buffer->EndFlush(mem));
   }
 }
 
