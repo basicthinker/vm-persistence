@@ -10,145 +10,68 @@
 #define VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
 
 #include <cassert>
-#include <cstdint>
+#include <cmath>
 #include <atomic>
-#include <chrono>
-#include <thread>
-#include <vector>
 
-#include <error.h>
-#include <pthread.h>
 #include <semaphore.h>
-#include <linux/nvme.h>
-#include <sys/ioctl.h>
 
 #include "format.h"
 #include "group_buffer.h"
-#include "versioned_persistence.h"
+#include "writer.h"
 
 namespace plib {
 
-template <typename DataEntry>
-class GroupCommitter : public VersionedPersistence<DataEntry> {
+class GroupCommitter {
  public:
-  GroupCommitter(const char *dev, int block_bits, int num_lanes, int size);
-  ~GroupCommitter();
+  GroupCommitter(int num_lanes, int buffer_size, Writer &writer);
 
-  void *Submit(DataEntry data[], uint32_t n) { return data; }
-  int Commit(void *handle, uint64_t timestamp,
-      uint64_t metadata[], uint32_t n);
-
-  int block_bits() const { return block_bits_; }
-  int single_buffer_size() const { return buffer_.single_size(); }
-  int fildes() const { return fildes_; }
-  GroupBuffer &buffer() { return buffer_; }
-  bool running() const { return running_; }
-  sem_t *flush_sem() { return &flush_sem_; }
-
-  uint64_t slba(int nblocks) {
-    return slba_.fetch_add(nblocks, std::memory_order_relaxed);
-  }
-
-  void **CheckoutPages(uint64_t timestamp, uint64_t addr[], int n);
-  void DestroyPages(void *pages[], int n) {}
-
+  int Commit(uint64_t timestamp, void *data, uint32_t size);
+ 
  private:
-  const int block_bits_;
-  int fildes_;
-  std::atomic_uint_fast64_t slba_;
-
-  GroupBuffer buffer_;
-  std::vector<std::thread> flushers_;
-  sem_t flush_sem_;
-  bool running_;
-
-  static void Flush(GroupCommitter<DataEntry> *committer);
+  alignas(64) std::atomic_uint_fast64_t address_;
+  alignas(64) GroupBuffer buffer_;
+  Writer &writer_;
 };
 
-template <typename DataEntry>
-inline GroupCommitter<DataEntry>::GroupCommitter(
-    const char *dev, int blk_bits, int nlanes, int size) :
-    block_bits_(blk_bits), slba_(0), buffer_(nlanes, size) {
-  fildes_ = open(dev, O_RDWR);
-  if (fildes_ < 0) {
-    perror(dev);
-    return;
-  }
-
-  sem_init(&flush_sem_, 0, 0);
-  running_ = true;
-  for (int i = 0; i < nlanes; ++i) {
-    flushers_.push_back(std::thread(Flush, this));
-  }
+inline GroupCommitter::GroupCommitter(int nlanes, int size, Writer &writer) :
+    address_(0), buffer_(log2(nlanes), log2(size), 4), writer_(writer) {
 }
 
-template <typename DataEntry>
-inline GroupCommitter<DataEntry>::~GroupCommitter() {
-  if (fildes_ < 0) return;
-  running_ = false;
-  for (size_t i = 0; i < flushers_.size(); ++i) {
-    sem_post(&flush_sem_);
+inline int GroupCommitter::Commit(uint64_t timestamp,
+    void *data, uint32_t size) {
+  const int total = buffer_.CeilToChunk(CRC32DataLength(size));
+  char local_buf[total];
+  CRC32DataEncode(local_buf, timestamp, data, size);
+
+  const uint64_t addr = address_.fetch_add(total);
+  Waiter &waiter = buffer_.GetWaiter(addr);
+  if (buffer_.IsFlusher(addr, total)) {
+    int len = total;
+    memcpy(buffer_.GetBuffer(addr, len), local_buf, len);
+    assert(total - len <= buffer_.partition_size()); // TODO
+    waiter.MarkDirty(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
+
+    Waiter *next = nullptr;
+    if (len < total) {
+      assert(buffer_.PartitionOffset(addr + len) == 0);
+      len = total - len; // rest to copy
+      memcpy(buffer_.GetBuffer(addr + total - len, len), local_buf, len);
+      next = &buffer_.GetWaiter(addr + buffer_.partition_size());
+      next->MarkDirty(0, buffer_.NumChunks(len));
+    }
+
+    waiter.FlusherWait();
+    writer_.Write(local_buf, total, addr);
+    waiter.Release();
+    buffer_.GetWaiter(addr + buffer_.buffer_size()).FlusherPost(); // TODO
+    if (next) next->Join();
+  } else {
+    int len = total;
+    memcpy(buffer_.GetBuffer(addr, len), local_buf, len);
+    assert(len == total);
+    waiter.Join(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
   }
-  for (std::thread &t : flushers_) {
-    t.join();
-  }
-  sem_destroy(&flush_sem_);
-}
-
-template <typename DataEntry>
-inline int GroupCommitter<DataEntry>::Commit(void *handle, uint64_t timestamp,
-    uint64_t metadata[], uint32_t n) {
-  if (fildes_ < 0) return -EIO;
-
-  size_t data_size = sizeof(DataEntry) * n;
-  size_t len = CRC32DataLength(data_size);
-  char data_buf[len];
-  CRC32DataEncode(data_buf, timestamp, handle, data_size);
-
-  sem_t commit_sem;
-  int err = sem_init(&commit_sem, 0, 0);
-  if (err) {
-    perror("[Error] sem_init() in GroupCommitter::Commit():");
-    return err;
-  }
- 
-  int8_t *dest = buffer_.Lock(len, &flush_sem_);
-  memcpy(dest, data_buf, len);
-  buffer_.Release(dest, &commit_sem);
-
-  err = sem_wait(&commit_sem);
-  sem_destroy(&commit_sem);
-  return err;
-}
-
-template <typename DataEntry>
-void GroupCommitter<DataEntry>::Flush(GroupCommitter<DataEntry> *committer) {
-  while (true) {
-    sem_wait(committer->flush_sem());
-    if (!committer->running()) break;
-    int8_t *mem;
-    do {
-      mem = committer->buffer().BeginFlush();
-
-      int n = (committer->single_buffer_size() >> committer->block_bits());
-      struct nvme_user_io io = {};
-      io.opcode = nvme_cmd_write;
-      io.addr = (unsigned long)mem;
-      io.slba = committer->slba(n);
-      io.nblocks = n - 1;
-      io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
-      if (ioctl(committer->fildes(), NVME_IOCTL_SUBMIT_IO, &io)) {
-        perror("Error: ioctl");
-      }
-
-    } while (committer->buffer().EndFlush(mem));
-  }
-}
-
-template <typename DataEntry>
-inline void **GroupCommitter<DataEntry>::CheckoutPages(uint64_t timestamp,
-    uint64_t addr[], int n) {
-  return nullptr;
+  return 0;
 }
 
 } // namespace plib

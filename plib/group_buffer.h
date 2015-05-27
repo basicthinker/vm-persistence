@@ -9,219 +9,117 @@
 #ifndef VM_PERSISTENCE_PLIB_GROUP_BUFFER_H_
 #define VM_PERSISTENCE_PLIB_GROUP_BUFFER_H_
 
+#include <algorithm>
+#include <atomic>
 #include <vector>
-#include <pthread.h>
 #include <semaphore.h>
+
+#include "waitlist.h"
 
 namespace plib {
 
-struct BufferMeta {
-  enum Flag { EMPTY, FULL, BUSY };
-
-  Flag flag;
-  int offset;
-  std::vector<sem_t *> sems;
-
-  BufferMeta() : flag(EMPTY), offset(0) {}
-};
-
 class GroupBuffer {
  public:
-  GroupBuffer(int num_lanes, int single_size);
+  // (1 << num_shifts) equals to the number of partitions.
+  // (1 << partition_shifts) equals to the size of a partition.
+  // (1 << waitlist_shifts) equals to the length of each waiting list.
+  GroupBuffer(int num_shifts, int partition_shifts, int waitlist_shifts);
   ~GroupBuffer();
 
-  int8_t *buffer(int index) const { return buffer_ + single_size_ * index; }
-  int num_buffers() const { return num_lanes_ << 1; }
-  int single_size() const { return single_size_; }
+  int buffer_size() const { return buffer_mask_ + 1; }
+  int num_partitions() const { return 1 << num_shifts_; }
+  int partition_size() const { return partition_mask_ + 1; }
+  int chunk_size() const { return chunk_mask_ + 1; }
 
-  int8_t *Lock(int len, sem_t *flush_sem);
-  void Release(int8_t *mem, sem_t *commit_sem);
+  bool IsFlusher(uint64_t addr, int len) const;
+  int8_t *GetBuffer(uint64_t addr, int &len) const;
+  Waiter &GetWaiter(uint64_t addr);
 
-  int8_t *BeginFlush();
-  bool EndFlush(int8_t *buffer); // Returns whether to clear
+  int CeilToChunk(int len) const;
+  int NumChunks(int len) const;
+  int ChunkIndex(uint64_t addr) const;
+
+  int PartitionIndex(uint64_t addr) const;
+  uint64_t PartitionOffset(uint64_t addr) const;
 
  private:
-  void FindEmpty();
-  bool AllEmpty();
-  void NotifyThreads(int index);
+  const int num_shifts_;
+  const int num_mask_;
+  const int partition_shifts_;
+  const uint64_t partition_mask_;
+  const int chunk_shifts_;
+  const uint64_t chunk_mask_;
+  const int buffer_shifts_;
+  const uint64_t buffer_mask_;
+  const int waitlist_shifts_;
+  const uint64_t waitlist_mask_;
 
   int8_t *buffer_;
-  const int num_lanes_;
-  const int single_size_;
-
-  int index_;
-  BufferMeta *meta_;
-  pthread_spinlock_t lock_; // for any update on the overall buffer state
+  std::vector<Waitlist> waitlists_;
 };
 
-inline GroupBuffer::GroupBuffer(int num_lanes, int single_size) :
-    num_lanes_(num_lanes), single_size_(single_size), index_(0) {
-  buffer_ = (int8_t *)malloc(num_buffers() * single_size_);
-  meta_ = new BufferMeta[num_buffers()];
-  pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE);
+inline GroupBuffer::GroupBuffer(
+    int num_shifts, int partition_shifts, int waitlist_shifts) :
+
+    num_shifts_(num_shifts), num_mask_((1 << num_shifts) - 1),
+    partition_shifts_(partition_shifts),
+    partition_mask_((1 << partition_shifts_) - 1),
+    chunk_shifts_(partition_shifts - Waiter::kShiftsToNumChunks),
+    chunk_mask_((1 << chunk_shifts_) - 1),
+    buffer_shifts_(num_shifts + partition_shifts),
+    buffer_mask_((1 << buffer_shifts_) - 1),
+    waitlist_shifts_(waitlist_shifts),
+    waitlist_mask_((1 << waitlist_shifts_) - 1),
+    buffer_(nullptr),
+    waitlists_((1 << num_shifts_), (1 << waitlist_shifts_)) {
+
+  if (partition_shifts_ <= Waiter::kShiftsToNumChunks) return;
+  buffer_ = (int8_t *)malloc(1 << (num_shifts_ + partition_shifts_));
+  for (int i = 0; i < num_partitions(); ++i) {
+    waitlists_[i][0].FlusherPost(); // TODO: move to Waiter's constructor 
+  }
 }
 
 inline GroupBuffer::~GroupBuffer() {
-  pthread_spin_destroy(&lock_);
-  delete[] meta_;
-  free(buffer_);
+  if (buffer_) free(buffer_);
 }
 
-// Assumes lock_ is locked and index_ is not EMPTY
-inline void GroupBuffer::FindEmpty() {
-  while (true) {
-    int idx = -1;
-    pthread_spin_unlock(&lock_);
-    for (int i = 0; i < num_buffers(); ++i) {
-      if (meta_[i].flag == BufferMeta::EMPTY) {
-        idx = i;
-        break;
-      }
-    }
-    pthread_spin_lock(&lock_);
-    if (meta_[index_].flag == BufferMeta::EMPTY) { // others have found
-      return;
-    }
-    if (idx >= 0 && meta_[idx].flag == BufferMeta::EMPTY) {
-      index_ = idx;
-      assert(meta_[index_].offset == 0);
-      return;
-    }
-  }
+inline int GroupBuffer::PartitionIndex(uint64_t addr) const {
+  return (addr >> partition_shifts_) & num_mask_;
 }
 
-inline int8_t *GroupBuffer::Lock(int len, sem_t *flush_sem) {
-  pthread_spin_lock(&lock_);
-  if (meta_[index_].flag != BufferMeta::EMPTY) {
-    FindEmpty();
-  }
-  while (meta_[index_].offset + len > single_size_) {
-    meta_[index_].flag = BufferMeta::FULL;
-    sem_post(flush_sem);
-    FindEmpty();
-  }
-
-  int &offset = meta_[index_].offset;
-  int8_t *p = buffer(index_) + offset;
-#ifdef TRACE
-  printf("<%lu> GroupBuffer::Lock on %d [%d] (%d)\n",
-         std::hash<std::thread::id>()(std::this_thread::get_id()),
-         index_, offset, meta_[index_].flag);
-#endif
-  offset += len;
-  return p;
+inline uint64_t GroupBuffer::PartitionOffset(uint64_t addr) const {
+  return addr & partition_mask_;
 }
 
-inline void GroupBuffer::Release(int8_t *mem, sem_t *commit_sem) {
-  assert((mem - buffer_) / single_size_ == index_);
-  meta_[index_].sems.push_back(commit_sem);
-  pthread_spin_unlock(&lock_);
+inline bool GroupBuffer::IsFlusher(uint64_t addr, int len) const {
+  return PartitionIndex(addr) != PartitionIndex(addr + len);
 }
 
-inline int8_t *GroupBuffer::BeginFlush() {
-  int idx = -1;
-  while (true) {
-    for (int i = 0; i < num_buffers(); ++i) {
-      if (meta_[i].flag == BufferMeta::FULL) {
-        idx = i;
-        break;
-      }
-    }
-    pthread_spin_lock(&lock_);
-    if (meta_[idx].flag == BufferMeta::FULL) {
-      break;
-    } else {
-      pthread_spin_unlock(&lock_);
-    }
-  }
-
-  meta_[idx].flag = BufferMeta::BUSY;
-#ifdef TRACE
-  printf("Waiting queues:");
-  for (int i = 0; i < num_buffers(); ++i) {
-    printf("\t%lu [%d] (%d)",
-           meta_[i].sems.size(), meta_[i].offset, meta_[i].flag);
-  }
-  printf("\n<%lu> GroupBuffer::BeginFlush on %d (=>%d)\n",
-         std::hash<std::thread::id>()(std::this_thread::get_id()),
-         idx, meta_[idx].flag);
-#endif
-  pthread_spin_unlock(&lock_);
-  return buffer(idx);
+inline int8_t *GroupBuffer::GetBuffer(uint64_t addr, int &len) const {
+  if (!buffer_) return nullptr;
+  int rest = partition_size() - PartitionOffset(addr);
+  len = std::min(len, rest);
+  return buffer_ + (addr & buffer_mask_);
 }
 
-inline bool GroupBuffer::EndFlush(int8_t *buf) {
-  int idx = (buf - buffer_) / single_size_;
-  assert(idx < num_buffers());
-
-  NotifyThreads(idx);
-
-  assert(meta_[idx].flag == BufferMeta::BUSY);
-  meta_[idx].offset = 0;
-  meta_[idx].flag = BufferMeta::EMPTY;
-#ifdef TRACE
-  printf("<%lu> GroupBuffer::EndFlush on %d (%d)\n",
-         std::hash<std::thread::id>()(std::this_thread::get_id()),
-         idx, meta_[idx].flag);
-#endif
-
-  if (!AllEmpty()) return false; // no need for clear yet
-
-  std::this_thread::sleep_for(std::chrono::microseconds(1));
- 
-  pthread_spin_lock(&lock_);
-  if (!AllEmpty()) {
-    pthread_spin_unlock(&lock_);
-    return false;
-  }
-
-  //printf("Final clear...\n");
-
-  idx = -1;
-  for (int i = 0; i < num_buffers(); ++i) {
-    if (meta_[i].offset) {
-      assert(idx == -1);
-      idx = i;
-    }
-  }
-  if (idx < 0) { // already clear
-    pthread_spin_unlock(&lock_);
-    return false;
-  }
-
-  int offset;
-  do {
-    offset = meta_[idx].offset;
-    NotifyThreads(idx);
-    pthread_spin_unlock(&lock_);
-    std::this_thread::sleep_for(std::chrono::microseconds(1));
-    pthread_spin_lock(&lock_);
-    if (meta_[idx].flag != BufferMeta::EMPTY) {
-      pthread_spin_unlock(&lock_);
-      return false;
-    }
-  } while (offset != meta_[idx].offset);
-  if (offset) meta_[idx].flag = BufferMeta::FULL;
-  pthread_spin_unlock(&lock_);
-  return offset;
+inline Waiter &GroupBuffer::GetWaiter(uint64_t addr) {
+  int waiter_index = ((addr >> buffer_shifts_) & waitlist_mask_);
+  return waitlists_[PartitionIndex(addr)][waiter_index];
 }
 
-// Utils
-
-inline bool GroupBuffer::AllEmpty() {
-  for (int i = 0; i < num_buffers(); ++i) {
-    if (meta_[i].flag != BufferMeta::EMPTY) {
-      return false;
-    }
-  }
-  return true;
+inline int GroupBuffer::CeilToChunk(int len) const {
+  int floor = len & ~chunk_mask_;
+  return len == floor ? floor : floor + chunk_size();
 }
 
-inline void GroupBuffer::NotifyThreads(int index) {
-  for (sem_t *sem : meta_[index].sems) {
-    sem_post(sem);
-  }
-  meta_[index].sems.clear();
+inline int GroupBuffer::NumChunks(int len) const {
+  assert((len & chunk_mask_) == 0);
+  return len >> chunk_shifts_;
+}
+
+inline int GroupBuffer::ChunkIndex(uint64_t addr) const {
+  return PartitionOffset(addr) >> chunk_shifts_;
 }
 
 } // namespace plib
