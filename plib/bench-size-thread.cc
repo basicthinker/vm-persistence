@@ -18,7 +18,7 @@
 #include "mem_store.h"
 #include "nvme_store.h"
 #include "tcp_store.h"
-#include "group_committer.h"
+//#include "group_committer.h"
 
 using DataEntry = int64_t;
 
@@ -72,14 +72,14 @@ int main(int argc, const char *argv[]) {
     // TODO hard coded port
     static plib::TcpStore<DataEntry> tcp("localhost", 4000);
     persist = &tcp;
-  } else if (strcmp(method, "group") == 0) {
+  } /* else if (strcmp(method, "group") == 0) {
     // TODO hard coded parameters
     const char *dev = "/dev/nvme0n1p1";
     int nlanes = atoi(argv[5]);
     int group_size = atoi(argv[6]);
     static plib::GroupCommitter<DataEntry> group(dev, 9, nlanes, group_size);
     persist = &group;
-  } else {
+  } */ else {
     fprintf(stderr, "Warning: unknown persistence method %s!\n", method);
   }
 
