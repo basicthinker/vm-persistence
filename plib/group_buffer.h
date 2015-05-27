@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <vector>
 #include <semaphore.h>
 
 #include "waitlist.h"
@@ -43,6 +42,9 @@ class GroupBuffer {
   uint64_t PartitionOffset(uint64_t addr) const;
 
  private:
+  int8_t *buffer_;
+  Waitlist *waitlists_;
+
   const int num_shifts_;
   const int num_mask_;
   const int partition_shifts_;
@@ -53,14 +55,12 @@ class GroupBuffer {
   const uint64_t buffer_mask_;
   const int waitlist_shifts_;
   const uint64_t waitlist_mask_;
-
-  int8_t *buffer_;
-  std::vector<Waitlist> waitlists_;
 };
 
 inline GroupBuffer::GroupBuffer(
     int num_shifts, int partition_shifts, int waitlist_shifts) :
 
+    buffer_(nullptr), waitlists_(nullptr),
     num_shifts_(num_shifts), num_mask_((1 << num_shifts) - 1),
     partition_shifts_(partition_shifts),
     partition_mask_((1 << partition_shifts_) - 1),
@@ -69,23 +69,24 @@ inline GroupBuffer::GroupBuffer(
     buffer_shifts_(num_shifts + partition_shifts),
     buffer_mask_((1 << buffer_shifts_) - 1),
     waitlist_shifts_(waitlist_shifts),
-    waitlist_mask_((1 << waitlist_shifts_) - 1),
-    buffer_(nullptr),
-    waitlists_((1 << num_shifts_), (1 << waitlist_shifts_)) {
+    waitlist_mask_((1 << waitlist_shifts_) - 1) {
 
   if (partition_shifts_ <= Waiter::kShiftsToNumChunks) return;
-  buffer_ = (int8_t *)malloc(1 << (num_shifts_ + partition_shifts_));
+  buffer_ = (int8_t *)malloc(buffer_size());
+  waitlists_ = new Waitlist[num_partitions()]();
   for (int i = 0; i < num_partitions(); ++i) {
+    waitlists_[i].CreateList(1 << waitlist_shifts_);
     waitlists_[i][0].FlusherPost(); // TODO: move to Waiter's constructor 
   }
 }
 
 inline GroupBuffer::~GroupBuffer() {
   if (buffer_) free(buffer_);
+  if (waitlists_) delete[] waitlists_;
 }
 
 inline int GroupBuffer::PartitionIndex(uint64_t addr) const {
-  return (addr >> partition_shifts_) & num_mask_;
+  return addr >> partition_shifts_;
 }
 
 inline uint64_t GroupBuffer::PartitionOffset(uint64_t addr) const {
@@ -105,7 +106,7 @@ inline int8_t *GroupBuffer::GetBuffer(uint64_t addr, int &len) const {
 
 inline Waiter &GroupBuffer::GetWaiter(uint64_t addr) {
   int waiter_index = ((addr >> buffer_shifts_) & waitlist_mask_);
-  return waitlists_[PartitionIndex(addr)][waiter_index];
+  return waitlists_[PartitionIndex(addr) & num_mask_][waiter_index];
 }
 
 inline int GroupBuffer::CeilToChunk(int len) const {

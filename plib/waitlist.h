@@ -45,8 +45,9 @@ class Waiter {
 // Manages a set of waiters
 class Waitlist {
  public:
-  Waitlist(int num);
+  Waitlist();
   ~Waitlist();
+  void CreateList(int n);
   Waiter &operator[](int index);
  private:
   Waiter *waiters_;
@@ -81,11 +82,10 @@ inline void Waiter::MarkDirty(int chunk_index, int len) {
 inline void Waiter::Join() {
   if (sem_wait(&workers_sem_)) {
     perror("[ERROR] Waiter::Join");
-  }
+  } else count_++;
 }
 
 inline void Waiter::Join(int chunk_index, int len) {
-  count_++;
   MarkDirty(chunk_index, len);
   Join();
 }
@@ -107,7 +107,7 @@ inline void Waiter::Release() {
 
 inline void Waiter::FlusherWait() {
   if (sem_wait(&flusher_sem_)) perror("[ERROR] Waiter::FlusherWait()");
-  while (bitmap_ != UINT64_MAX) {}
+  while (bitmap_ != UINT64_MAX) { }
 }
 
 inline void Waiter::FlusherPost() {
@@ -116,12 +116,17 @@ inline void Waiter::FlusherPost() {
 
 // Implementation of Waitlist
 
-inline Waitlist::Waitlist(int num) {
-  waiters_ = new Waiter[num]();
-}
+inline Waitlist::Waitlist() : waiters_(nullptr) {}
 
 inline Waitlist::~Waitlist() {
-  delete[] waiters_;
+  if (waiters_) delete[] waiters_;
+}
+
+inline void Waitlist::CreateList(int len) {
+  if (waiters_) {
+    fprintf(stderr, "[ERROR] Waitlist::CreateList has been called!\n");
+  }
+  waiters_ = new Waiter[len]();
 }
 
 inline Waiter &Waitlist::operator[](int index) {
