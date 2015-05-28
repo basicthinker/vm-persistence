@@ -20,6 +20,7 @@ std::atomic_int_fast64_t g_total_num(0);
 
 std::chrono::high_resolution_clock::time_point t1, t2;
 uint64_t n1, n2;
+int g_num_threads;
 
 void DoPersist(plib::GroupCommitter *committer, const int size) {
   using namespace std::chrono;
@@ -32,7 +33,8 @@ void DoPersist(plib::GroupCommitter *committer, const int size) {
       t2 = high_resolution_clock::now();
       uint64_t nsec = duration_cast<nanoseconds>(t2 - t1).count();
       double thr = (n2 - n1) * size * 1000 / (double)nsec; // MB/s
-      printf("%f\n", thr);
+      uint64_t latency = g_num_threads * nsec / (n2 - n1) / 1000; // usec
+      printf("%f\t%lu\n", thr, latency);
       exit(0);
     }
     int err = committer->Commit(seq, mem, size);
@@ -50,7 +52,7 @@ int main(int argc, const char *argv[]) {
   const char *method = argv[1];
   const int num_trans = atoi(argv[2]);
   const int size_trans = atoi(argv[3]);
-  const int num_threads = atoi(argv[4]);
+  g_num_threads = atoi(argv[4]);
   const int num_lanes = atoi(argv[5]);
   const int group_size = atoi(argv[6]);
 
@@ -59,7 +61,9 @@ int main(int argc, const char *argv[]) {
     static plib::SleepWriter sleep(50, 200);
     writer = &sleep;
   } else if (strcmp(method, "nvme") == 0) {
-    //TODO
+    //TODO hard coded parameter
+    static plib::NVMeWriter nvme("/dev/nvme0n1p1", 9);
+    writer = &nvme;
   } else {
     fprintf(stderr, "Warning: unknown persistence method %s!\n", method);
   }
@@ -68,7 +72,7 @@ int main(int argc, const char *argv[]) {
   n1 = num_trans * 0.1;
   n2 = num_trans * 0.9;
 
-  std::thread threads[num_threads];
+  std::thread threads[g_num_threads];
   for (std::thread &t : threads) {
     t = std::thread(DoPersist, &committer, size_trans);
   }

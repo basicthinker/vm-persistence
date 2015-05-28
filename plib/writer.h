@@ -11,6 +11,9 @@
 
 #include <thread>
 #include <chrono>
+#include <fcntl.h>
+#include <linux/nvme.h>
+#include <sys/ioctl.h>
 
 namespace plib {
 
@@ -24,18 +27,62 @@ class SleepWriter : public Writer {
  public:
   SleepWriter(int latency, int bandwidth); // MB/s
   int Write(void *mem, int len, uint64_t addr);
+
  private:
   int latency_; // microsec
   int bandwidth_; // byte/usec
 };
 
-SleepWriter::SleepWriter(int latency, int bandwidth) :
+class NVMeWriter : public Writer {
+ public:
+  NVMeWriter(const char *dev, int block_bits);
+  int Write(void *mem, int len, uint64_t addr);
+
+ private:
+  const int block_bits_;
+  const size_t block_mask_;
+  int fildes_;
+
+  int NumBlocks(int size) {
+    size_t n = (size >> block_bits_) + ((size & block_mask_) > 0);
+    return n;
+  }
+};
+
+// Implementation of SleepWriter
+
+inline SleepWriter::SleepWriter(int latency, int bandwidth) :
     latency_(latency), bandwidth_(bandwidth) {
 }
 
-int SleepWriter::Write(void *mem, int len, uint64_t addr) {
+inline int SleepWriter::Write(void *mem, int len, uint64_t addr) {
   int usec = latency_ + len / bandwidth_;
   std::this_thread::sleep_for(std::chrono::microseconds(usec));
+  return 0;
+}
+
+// Implementation of NVMeWriter
+
+inline NVMeWriter::NVMeWriter(const char *dev, int block_bits) :
+    block_bits_(block_bits), block_mask_((1 << block_bits) - 1) {
+  fildes_ = open(dev, O_RDWR);
+  if (fildes_ < 0) {
+    perror("[ERROR] NVMeWriter::NVMeWriter open()");
+    exit(EXIT_FAILURE);
+  }
+}
+
+inline int NVMeWriter::Write(void *mem, int len, uint64_t addr) {
+  struct nvme_user_io io = {};
+  io.opcode = nvme_cmd_write;
+  io.addr = (unsigned long)mem;
+  io.slba = (addr >> block_bits_);
+  io.nblocks = NumBlocks(len) - 1;
+  io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
+  if (ioctl(fildes_, NVME_IOCTL_SUBMIT_IO, &io)) {
+    perror("[ERROR] NVMeWriter::Write ioctl()");
+    return -1;
+  }
   return 0;
 }
 
