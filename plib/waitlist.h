@@ -80,9 +80,10 @@ inline void Waiter::MarkDirty(int chunk_index, int len) {
 }
 
 inline void Waiter::Join() {
+  count_++;
   if (sem_wait(&workers_sem_)) {
     perror("[ERROR] Waiter::Join");
-  } else count_++;
+  }
 }
 
 inline void Waiter::Join(int chunk_index, int len) {
@@ -101,7 +102,6 @@ inline void Waiter::Release() {
   count_ = 0;
   bitmap_ = 0;
 
-  assert(!sem_getvalue(&workers_sem_, &n) && !n);
   assert(!sem_getvalue(&flusher_sem_, &n) && !n);
 }
 
