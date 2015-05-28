@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <semaphore.h>
 
 #include "waitlist.h"
 

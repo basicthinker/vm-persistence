@@ -13,8 +13,6 @@
 #include <cmath>
 #include <atomic>
 
-#include <semaphore.h>
-
 #include "format.h"
 #include "group_buffer.h"
 #include "writer.h"

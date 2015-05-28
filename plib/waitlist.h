@@ -12,12 +12,21 @@
 #include <cassert>
 #include <cstdint>
 #include <atomic>
-#include <semaphore.h>
+
+#include "notifier.h"
+
+namespace plib {
+
+#ifdef SPINNING_NOTIFIER
+  using Notifier = SpinningNotifier;
+#else
+  using Notifier = SleepingNotifier;
+#endif
 
 // Keeps track of waiting threads
 class Waiter {
  public:
-  Waiter();
+  Waiter() : count_(0), bitmap_(0) {}
 
   void MarkDirty(int chunk_index, int len);
 
@@ -38,14 +47,14 @@ class Waiter {
 
   alignas(64) std::atomic_int count_; // Number of waiting threads
   alignas(64) std::atomic_uint_fast64_t bitmap_;
-  alignas(64) sem_t workers_sem_;
-  sem_t flusher_sem_;
+  alignas(64) Notifier workers_sem_;
+  Notifier flusher_sem_;
 };
 
 // Manages a set of waiters
 class Waitlist {
  public:
-  Waitlist();
+  Waitlist() : waiters_(nullptr) {}
   ~Waitlist();
   void CreateList(int n);
   Waiter &operator[](int index);
@@ -54,15 +63,6 @@ class Waitlist {
 };
 
 // Implementation of Waiter
-
-inline Waiter::Waiter() : count_(0), bitmap_(0) {
-  if (sem_init(&workers_sem_, 0, 0)) {
-    perror("[ERROR] Waiter::Waiter sem_init() on the workers' sem");
-  }
-  if (sem_init(&flusher_sem_, 0, 0)) {
-    perror("[ERROR] Waiter::Waiter sem_init() on the flusher's sem");
-  }
-}
 
 inline uint64_t Waiter::MakeMask(int chunk_index, int len) {
   if (chunk_index < 0 || chunk_index >= 64 ||
@@ -81,9 +81,7 @@ inline void Waiter::MarkDirty(int chunk_index, int len) {
 
 inline void Waiter::Join() {
   count_++;
-  if (sem_wait(&workers_sem_)) {
-    perror("[ERROR] Waiter::Join");
-  }
+  workers_sem_.Wait();
 }
 
 inline void Waiter::Join(int chunk_index, int len) {
@@ -92,31 +90,22 @@ inline void Waiter::Join(int chunk_index, int len) {
 }
 
 inline void Waiter::Release() {
-  int n = count_;
-  for (int i = 0; i < n; ++i) {
-    if (sem_post(&workers_sem_)) {
-      perror("[ERROR] Waiter::Release sem_post()");
-    }
-  }
+  workers_sem_.Notify(count_.load());
 
   count_ = 0;
   bitmap_ = 0;
-
-  assert(!sem_getvalue(&flusher_sem_, &n) && !n);
 }
 
 inline void Waiter::FlusherWait() {
-  if (sem_wait(&flusher_sem_)) perror("[ERROR] Waiter::FlusherWait()");
+  flusher_sem_.Wait();
   while (bitmap_ != UINT64_MAX) { }
 }
 
 inline void Waiter::FlusherPost() {
-  if (sem_post(&flusher_sem_)) perror("[ERROR] Waiter::FlusherPost()");
+  flusher_sem_.Notify();
 }
 
 // Implementation of Waitlist
-
-inline Waitlist::Waitlist() : waiters_(nullptr) {}
 
 inline Waitlist::~Waitlist() {
   if (waiters_) delete[] waiters_;
@@ -132,6 +121,8 @@ inline void Waitlist::CreateList(int len) {
 inline Waiter &Waitlist::operator[](int index) {
   return waiters_[index];
 }
+
+} // namespace plib
 
 #endif // VM_PERSISTENCE_PLIB_WAITLIST_H_
 
