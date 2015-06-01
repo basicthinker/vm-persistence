@@ -43,19 +43,22 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
 
   const uint64_t addr = address_.fetch_add(total);
   Waiter &waiter = buffer_.GetWaiter(addr);
+  int8_t *dest;
   if (buffer_.IsFlusher(addr, total)) {
     int len = total;
-    memcpy(buffer_.GetBuffer(addr, len), local_buf, len);
-    assert(total - len <= buffer_.partition_size()); // TODO
+    dest = buffer_.GetBuffer(addr, len);
+    memcpy(dest, local_buf, len);
     waiter.MarkDirty(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
 
     Waiter *next = nullptr;
     if (len < total) {
       assert(buffer_.PartitionOffset(addr + len) == 0);
-      len = total - len; // rest to copy
-      memcpy(buffer_.GetBuffer(addr + total - len, len), local_buf, len);
+      int rest = total - len;
+      dest = buffer_.GetBuffer(addr + len, rest);
+      memcpy(dest, local_buf, rest);
+      assert(len + rest == total); // TODO
       next = &buffer_.GetWaiter(addr + buffer_.partition_size());
-      next->MarkDirty(0, buffer_.NumChunks(len));
+      next->MarkDirty(0, buffer_.NumChunks(rest));
     }
 
     waiter.FlusherWait();
@@ -65,7 +68,8 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     if (next) next->Join();
   } else {
     int len = total;
-    memcpy(buffer_.GetBuffer(addr, len), local_buf, len);
+    dest = buffer_.GetBuffer(addr, len);
+    memcpy(dest, local_buf, len);
     assert(len == total);
     waiter.Join(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
   }
@@ -75,4 +79,3 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
 } // namespace plib
 
 #endif // VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
-

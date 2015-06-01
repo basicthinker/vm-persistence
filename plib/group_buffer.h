@@ -23,6 +23,8 @@ class GroupBuffer {
   // (1 << waitlist_shifts) equals to the length of each waiting list.
   GroupBuffer(int num_shifts, int partition_shifts, int waitlist_shifts);
   ~GroupBuffer();
+  GroupBuffer(const GroupBuffer &) = delete;
+  GroupBuffer &operator=(const GroupBuffer &) = delete;
 
   int buffer_size() const { return buffer_mask_ + 1; }
   int num_partitions() const { return 1 << num_shifts_; }
@@ -104,8 +106,10 @@ inline int8_t *GroupBuffer::GetBuffer(uint64_t addr, int &len) const {
 }
 
 inline Waiter &GroupBuffer::GetWaiter(uint64_t addr) {
+  assert(waitlists_);
+  int partition_index = PartitionIndex(addr) & num_mask_;
   int waiter_index = ((addr >> buffer_shifts_) & waitlist_mask_);
-  return waitlists_[PartitionIndex(addr) & num_mask_][waiter_index];
+  return waitlists_[partition_index][waiter_index];
 }
 
 inline int GroupBuffer::CeilToChunk(int len) const {

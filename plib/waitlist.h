@@ -56,6 +56,9 @@ class Waitlist {
  public:
   Waitlist() : waiters_(nullptr) {}
   ~Waitlist();
+  Waitlist(const Waitlist &) = delete;
+  Waitlist &operator=(const Waitlist &) = delete;
+
   void CreateList(int n);
   Waiter &operator[](int index);
  private:
@@ -114,11 +117,13 @@ inline Waitlist::~Waitlist() {
 inline void Waitlist::CreateList(int len) {
   if (waiters_) {
     fprintf(stderr, "[ERROR] Waitlist::CreateList has been called!\n");
+    return;
   }
   waiters_ = new Waiter[len]();
 }
 
 inline Waiter &Waitlist::operator[](int index) {
+  assert(waiters_);
   return waiters_[index];
 }
 
