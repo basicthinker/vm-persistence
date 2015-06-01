@@ -51,8 +51,14 @@ inline SleepingNotifier::~SleepingNotifier() {
 }
 
 inline void SleepingNotifier::Wait() {
-  if (sem_wait(&sem_)) {
-    perror("[ERROR] SleepingNotifier::Wait sem_waite()");
+  struct timespec timeout;
+  if (clock_gettime(CLOCK_REALTIME, &timeout)) {
+    perror("[ERROR] SleepingNotifier::Wait clock_gettime()");
+    return;
+  }
+  timeout.tv_sec += 1;
+  if (sem_timedwait(&sem_, &timeout)) {
+    perror("[WARNING] SleepingNotifier::Wait sem_timedwait()");
   }
 }
 

@@ -20,7 +20,6 @@ std::atomic_int_fast64_t g_total_num(0);
 
 std::chrono::high_resolution_clock::time_point t1, t2;
 uint64_t n1, n2;
-int g_num_threads;
 
 void DoPersist(plib::GroupCommitter *committer, const int size) {
   using namespace std::chrono;
@@ -29,20 +28,16 @@ void DoPersist(plib::GroupCommitter *committer, const int size) {
   while (true) {
     uint64_t seq = g_total_num++;
     if (seq == n1) t1 = high_resolution_clock::now();
-    else if (seq == n2) {
-      t2 = high_resolution_clock::now();
-      uint64_t nsec = duration_cast<nanoseconds>(t2 - t1).count();
-      double thr = (n2 - n1) * size * 1000 / (double)nsec; // MB/s
-      uint64_t latency = g_num_threads * nsec / (n2 - n1) / 1000; // usec
-      printf("%f\t%lu\n", thr, latency);
-      exit(0);
-    }
+    else if (seq == n2) t2 = high_resolution_clock::now();
+    else if (seq > n2) break;
+
     int err = committer->Commit(seq, mem, size);
     assert(!err);
   }
 }
 
 int main(int argc, const char *argv[]) {
+  using namespace std::chrono;
   if (argc < 7) {
     printf("Usage: %s METHOD NUM_TRANS SIZE_TRANS #THREADS #LANES GROUP_SIZE\n",
            argv[0]);
@@ -52,34 +47,40 @@ int main(int argc, const char *argv[]) {
   const char *method = argv[1];
   const int num_trans = atoi(argv[2]);
   const int size_trans = atoi(argv[3]);
-  g_num_threads = atoi(argv[4]);
+  const int num_threads = atoi(argv[4]);
   const int num_lanes = atoi(argv[5]);
   const int group_size = atoi(argv[6]);
 
   plib::Writer *writer;
   if (strcmp(method, "sleep") == 0) {
-    static plib::SleepWriter sleep(50, 200);
-    writer = &sleep;
+    writer = new plib::SleepWriter(50, 200);
   } else if (strcmp(method, "nvme") == 0) {
     //TODO hard coded parameter
-    static plib::NVMeWriter nvme("/dev/nvme0n1p1", 9);
-    writer = &nvme;
+    writer = new plib::NVMeWriter("/dev/nvme0n1p1", 9);
   } else {
     fprintf(stderr, "Warning: unknown persistence method %s!\n", method);
   }
   plib::GroupCommitter committer(num_lanes, group_size, *writer);
+  // commit from the main thread
+  char mem[group_size];
+  int err = committer.Commit(0, mem, group_size);
+  assert(!err);
 
   n1 = num_trans * 0.1;
   n2 = num_trans * 0.9;
 
-  std::thread threads[g_num_threads];
+  std::thread threads[num_threads];
   for (std::thread &t : threads) {
     t = std::thread(DoPersist, &committer, size_trans);
   }
   for (std::thread &t : threads) {
     t.join();
-    fprintf(stderr, "Warning: thread exit. "
-      "A well designed config should not show this!\n");
   }
+  uint64_t nsec = duration_cast<nanoseconds>(t2 - t1).count();
+  double thr = (n2 - n1) * size_trans * 1000 / (double)nsec; // MB/s
+  uint64_t latency = num_threads * nsec / (n2 - n1) / 1000; // usec
+  printf("%f\t%lu\n", thr, latency);
+
+  delete writer;
 }
 
