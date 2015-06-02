@@ -32,6 +32,9 @@ class SpinningNotifier {
   void Wait();
   void Notify(int n = 1);
  private:
+  void Lock();
+  void Unlock();
+
   pthread_spinlock_t lock_;
   int permits_;
 };
@@ -89,22 +92,48 @@ inline SpinningNotifier::~SpinningNotifier() {
 }
 
 inline void SpinningNotifier::Wait() {
-  while (true) {
-    pthread_spin_lock(&lock_);
-    if (permits_) {
-      --permits_;
-      pthread_spin_unlock(&lock_);
-      return;
-    }
-    pthread_spin_unlock(&lock_);
+  struct timespec t1;
+  if (clock_gettime(CLOCK_REALTIME, &t1)) {
+    perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
+    return;
   }
+  t1.tv_sec += 1;
+  struct timespec t2;
+  while (true) {
+    Lock();
+    if (permits_ > 0) {
+      --permits_;
+      break;
+    }
+    if (clock_gettime(CLOCK_REALTIME, &t2)) {
+      perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
+      break;
+    }
+    if (t2.tv_sec > t1.tv_sec ||
+        (t2.tv_sec == t1.tv_sec && t2.tv_nsec >= t1.tv_nsec)) {
+      fprintf(stderr, "[WARNING] SpinningNotifier::Wait timed out.\n");
+      break;
+    }
+    Unlock();
+  }
+  Unlock();
 }
 
 inline void SpinningNotifier::Notify(int n) {
-  pthread_spin_lock(&lock_);
+  Lock();
   assert(permits_ >= 0);
   permits_ += n;
-  pthread_spin_unlock(&lock_);
+  Unlock();
+}
+
+inline void SpinningNotifier::Lock() {
+  int err = pthread_spin_lock(&lock_);
+  assert(!err);
+}
+
+inline void SpinningNotifier::Unlock() {
+  int err = pthread_spin_unlock(&lock_);
+  assert(!err);
 }
 
 } // namespace plib
