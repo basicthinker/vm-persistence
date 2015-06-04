@@ -26,8 +26,8 @@ class GroupCommitter {
   int Commit(uint64_t timestamp, void *data, uint32_t size);
  
  private:
-  alignas(64) std::atomic_uint_fast64_t address_;
-  alignas(64) GroupBuffer buffer_;
+  std::atomic_uint_fast64_t address_ alignas(64);
+  GroupBuffer buffer_ alignas(64);
   Writer &writer_;
 };
 

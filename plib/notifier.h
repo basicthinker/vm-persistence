@@ -28,15 +28,12 @@ class SleepingNotifier {
 class SpinningNotifier {
  public:
   SpinningNotifier();
-  ~SpinningNotifier();
   int Wait();
   void Notify(int n = 1);
  private:
-  void Lock();
-  void Unlock();
-
-  pthread_spinlock_t lock_;
-  int permits_;
+  std::atomic_bool waiting_ alignas(64);
+  std::atomic_int permits_ alignas(64);
+  alignas(64) const int padding = 0;
 };
 
 // Implementation of SleepingNotifier
@@ -77,21 +74,7 @@ inline void SleepingNotifier::Notify(int n) {
 
 // Implementation of SpinningNotifier
 
-inline SpinningNotifier::SpinningNotifier() : permits_(0) {
-  int err = pthread_spin_init(&lock_, 0);
-  if (err) {
-    fprintf(stderr, "[ERROR] SpinningNotifier::SpinningNotifier "
-        "pthread_spin_init: %s\n", strerror(err));
-  }
-}
-
-inline SpinningNotifier::~SpinningNotifier() {
-  int err = pthread_spin_destroy(&lock_);
-  if (err) {
-    fprintf(stderr, "[ERROR] SpinningNotifier::SpinningNotifier "
-        "pthread_spin_destroy: %s\n", strerror(err));
-  }
-}
+inline SpinningNotifier::SpinningNotifier() : waiting_(true), permits_(0) {}
 
 inline int SpinningNotifier::Wait() {
   struct timespec t1;
@@ -101,45 +84,29 @@ inline int SpinningNotifier::Wait() {
   }
   t1.tv_sec += 1;
   struct timespec t2;
-  int err = 0;
   while (true) {
-    Lock();
-    if (permits_ > 0) {
-      --permits_;
-      break;
+    if (!waiting_) {
+      if (--permits_ == 0) {
+        waiting_ = true;
+        assert(!permits_);
+      }
+      return 0;
     }
     if (clock_gettime(CLOCK_REALTIME, &t2)) {
       perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
-      err = -1;
-      break;
+      return -1;
     }
     if (t2.tv_sec > t1.tv_sec ||
         (t2.tv_sec == t1.tv_sec && t2.tv_nsec >= t1.tv_nsec)) {
       fprintf(stderr, "[WARNING] SpinningNotifier::Wait timed out.\n");
-      err = -1;
-      break;
+      return -1;
     }
-    Unlock();
   }
-  Unlock();
-  return err;
 }
 
 inline void SpinningNotifier::Notify(int n) {
-  Lock();
-  assert(permits_ >= 0);
   permits_ += n;
-  Unlock();
-}
-
-inline void SpinningNotifier::Lock() {
-  int err = pthread_spin_lock(&lock_);
-  assert(!err);
-}
-
-inline void SpinningNotifier::Unlock() {
-  int err = pthread_spin_unlock(&lock_);
-  assert(!err);
+  waiting_ = false;
 }
 
 } // namespace plib

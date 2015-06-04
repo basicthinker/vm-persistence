@@ -106,7 +106,9 @@ inline void Waiter::Release() {
 
 inline void Waiter::FlusherWait() {
   flusher_sem_.Wait();
-  while (bitmap_ != UINT64_MAX) { }
+  while (bitmap_ != UINT64_MAX) {
+    asm volatile("pause\n": : :"memory");
+  }
 }
 
 inline void Waiter::FlusherPost() {
