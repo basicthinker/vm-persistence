@@ -28,11 +28,10 @@ class Waiter {
  public:
   Waiter() : count_(0), bitmap_(0) {}
 
+  void Register();
   void MarkDirty(int chunk_index, int len);
-
-  // Blocks the calling thread until the flusher notifies all waiting threads.
-  void Join();
-  void Join(int chunk_index, int len);
+  void Join(); // Blocks the calling thread until the flusher notifies
+  void Join(int chunk_index, int len); // Combination of the above three
   void Release(); // Releases worker threads blocked on this waiter.
 
   // Called by the flusher thread, waiting for when the buffer is available
@@ -78,23 +77,29 @@ inline uint64_t Waiter::MakeMask(int chunk_index, int len) {
   return v << (64 - chunk_index - len);
 }
 
+inline void Waiter::Register() {
+  count_++;
+}
+
 inline void Waiter::MarkDirty(int chunk_index, int len) {
   bitmap_ |= MakeMask(chunk_index, len);
 }
 
 inline void Waiter::Join() {
-  count_++;
-  workers_sem_.Wait();
+  if (workers_sem_.Wait()) {
+    count_--;
+  }
 }
 
 inline void Waiter::Join(int chunk_index, int len) {
+  Register();
   MarkDirty(chunk_index, len);
   Join();
 }
 
 inline void Waiter::Release() {
-  workers_sem_.Notify(count_.load());
-
+  assert(bitmap_ == UINT64_MAX); // requires FlusherWait() to have been called
+  workers_sem_.Notify(count_);
   count_ = 0;
   bitmap_ = 0;
 }

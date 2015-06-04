@@ -58,15 +58,16 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
       memcpy(dest, local_buf, rest);
       assert(len + rest == total); // TODO
       next = &buffer_.GetWaiter(addr + buffer_.partition_size());
+      next->Register();
       next->MarkDirty(0, buffer_.NumChunks(rest));
     }
 
-    waiter.FlusherWait();
+    waiter.FlusherWait(); // waiting for worker threads to finish copying data
     writer_.Write(local_buf, total, addr);
     waiter.Release();
     buffer_.GetWaiter(addr + buffer_.buffer_size()).FlusherPost(); // TODO
     if (next) next->Join();
-  } else {
+  } else { // worker thread
     int len = total;
     dest = buffer_.GetBuffer(addr, len);
     memcpy(dest, local_buf, len);

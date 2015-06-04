@@ -19,7 +19,7 @@ class SleepingNotifier {
  public:
   SleepingNotifier();
   ~SleepingNotifier();
-  void Wait();
+  int Wait();
   void Notify(int n = 1);
  private:
   sem_t sem_;
@@ -29,7 +29,7 @@ class SpinningNotifier {
  public:
   SpinningNotifier();
   ~SpinningNotifier();
-  void Wait();
+  int Wait();
   void Notify(int n = 1);
  private:
   void Lock();
@@ -53,16 +53,18 @@ inline SleepingNotifier::~SleepingNotifier() {
   }
 }
 
-inline void SleepingNotifier::Wait() {
+inline int SleepingNotifier::Wait() {
   struct timespec timeout;
   if (clock_gettime(CLOCK_REALTIME, &timeout)) {
     perror("[ERROR] SleepingNotifier::Wait clock_gettime()");
-    return;
+    return -1;
   }
   timeout.tv_sec += 1;
   if (sem_timedwait(&sem_, &timeout)) {
     perror("[WARNING] SleepingNotifier::Wait sem_timedwait()");
+    return -1;
   }
+  return 0;
 }
 
 inline void SleepingNotifier::Notify(int n) {
@@ -91,14 +93,15 @@ inline SpinningNotifier::~SpinningNotifier() {
   }
 }
 
-inline void SpinningNotifier::Wait() {
+inline int SpinningNotifier::Wait() {
   struct timespec t1;
   if (clock_gettime(CLOCK_REALTIME, &t1)) {
     perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
-    return;
+    return -1;
   }
   t1.tv_sec += 1;
   struct timespec t2;
+  int err = 0;
   while (true) {
     Lock();
     if (permits_ > 0) {
@@ -107,16 +110,19 @@ inline void SpinningNotifier::Wait() {
     }
     if (clock_gettime(CLOCK_REALTIME, &t2)) {
       perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
+      err = -1;
       break;
     }
     if (t2.tv_sec > t1.tv_sec ||
         (t2.tv_sec == t1.tv_sec && t2.tv_nsec >= t1.tv_nsec)) {
       fprintf(stderr, "[WARNING] SpinningNotifier::Wait timed out.\n");
+      err = -1;
       break;
     }
     Unlock();
   }
   Unlock();
+  return err;
 }
 
 inline void SpinningNotifier::Notify(int n) {
