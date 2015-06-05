@@ -19,24 +19,24 @@ namespace plib {
 
 class Writer {
  public:
-  virtual int Write(void *mem, int len, uint64_t addr) = 0;
+  virtual int Write(void *mem, int len, uint64_t addr, int flag) = 0;
   virtual ~Writer() {}
 };
 
 class SleepWriter : public Writer {
  public:
   SleepWriter(int latency, int bandwidth); // MB/s
-  int Write(void *mem, int len, uint64_t addr);
+  int Write(void *mem, int len, uint64_t addr, int flag);
 
  private:
   int latency_; // microsec
-  int bandwidth_; // byte/usec
+  int bandwidth_; // bytes/usec
 };
 
 class NVMeWriter : public Writer {
  public:
   NVMeWriter(const char *dev, int block_bits);
-  int Write(void *mem, int len, uint64_t addr);
+  int Write(void *mem, int len, uint64_t addr, int flag);
 
  private:
   const int block_bits_;
@@ -55,7 +55,7 @@ inline SleepWriter::SleepWriter(int latency, int bandwidth) :
     latency_(latency), bandwidth_(bandwidth) {
 }
 
-inline int SleepWriter::Write(void *mem, int len, uint64_t addr) {
+inline int SleepWriter::Write(void *mem, int len, uint64_t addr, int flag) {
   int usec = latency_ + len / bandwidth_;
   std::this_thread::sleep_for(std::chrono::microseconds(usec));
   return 0;
@@ -72,13 +72,13 @@ inline NVMeWriter::NVMeWriter(const char *dev, int block_bits) :
   }
 }
 
-inline int NVMeWriter::Write(void *mem, int len, uint64_t addr) {
+inline int NVMeWriter::Write(void *mem, int len, uint64_t addr, int flag) {
   struct nvme_user_io io = {};
   io.opcode = nvme_cmd_write;
   io.addr = (unsigned long)mem;
   io.slba = (addr >> block_bits_);
   io.nblocks = NumBlocks(len) - 1;
-  io.dsmgmt = NVME_RW_DSM_LATENCY_LOW;
+  io.dsmgmt |= flag;
   if (ioctl(fildes_, NVME_IOCTL_SUBMIT_IO, &io)) {
     perror("[ERROR] NVMeWriter::Write ioctl()");
     return -1;

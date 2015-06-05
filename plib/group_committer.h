@@ -23,7 +23,7 @@ class GroupCommitter {
  public:
   GroupCommitter(int num_lanes, int buffer_size, Writer &writer);
 
-  int Commit(uint64_t timestamp, void *data, uint32_t size);
+  int Commit(uint64_t timestamp, void *data, uint32_t size, int flag = 0);
  
  private:
   std::atomic_uint_fast64_t address_ alignas(64);
@@ -36,7 +36,7 @@ inline GroupCommitter::GroupCommitter(int nlanes, int size, Writer &writer) :
 }
 
 inline int GroupCommitter::Commit(uint64_t timestamp,
-    void *data, uint32_t size) {
+    void *data, uint32_t size, int flag) {
   const int total = buffer_.CeilToChunk(CRC32DataLength(size));
   char local_buf[total];
   CRC32DataEncode(local_buf, timestamp, data, size);
@@ -63,7 +63,7 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     }
 
     waiter.FlusherWait(); // waiting for worker threads to finish copying data
-    writer_.Write(local_buf, total, addr);
+    writer_.Write(local_buf, total, addr, flag);
     waiter.Release();
     buffer_.GetWaiter(addr + buffer_.buffer_size()).FlusherPost(); // TODO
     if (next) next->Join();
