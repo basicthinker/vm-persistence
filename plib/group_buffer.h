@@ -33,13 +33,15 @@ class GroupBuffer {
 
   bool IsFlusher(uint64_t addr, int len) const;
   int8_t *GetBuffer(uint64_t addr, int &len) const;
+  int8_t *GetPartition(uint64_t addr) const;
   Waiter &GetWaiter(uint64_t addr);
 
   int CeilToChunk(int len) const;
   int NumChunks(int len) const;
   int ChunkIndex(uint64_t addr) const;
 
-  int PartitionIndex(uint64_t addr) const;
+  uint64_t Partition(uint64_t addr) const; // Addr. of the containing partition
+  uint64_t PartitionIndex(uint64_t addr) const;
   uint64_t PartitionOffset(uint64_t addr) const;
 
  private:
@@ -86,7 +88,11 @@ inline GroupBuffer::~GroupBuffer() {
   if (waitlists_) delete[] waitlists_;
 }
 
-inline int GroupBuffer::PartitionIndex(uint64_t addr) const {
+inline uint64_t GroupBuffer::Partition(uint64_t addr) const {
+  return addr & (~partition_mask_);
+}
+
+inline uint64_t GroupBuffer::PartitionIndex(uint64_t addr) const {
   return addr >> partition_shifts_;
 }
 
@@ -103,6 +109,12 @@ inline int8_t *GroupBuffer::GetBuffer(uint64_t addr, int &len) const {
   int rest = partition_size() - PartitionOffset(addr);
   len = std::min(len, rest);
   return buffer_ + (addr & buffer_mask_);
+}
+
+inline int8_t *GroupBuffer::GetPartition(uint64_t addr) const {
+  if (!buffer_) return nullptr;
+  uint64_t partition_index = PartitionIndex(addr) & num_mask_;
+  return buffer_ + (partition_index << partition_shifts_);
 }
 
 inline Waiter &GroupBuffer::GetWaiter(uint64_t addr) {

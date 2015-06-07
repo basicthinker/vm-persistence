@@ -82,7 +82,9 @@ inline void Waiter::Register() {
 }
 
 inline void Waiter::MarkDirty(int chunk_index, int len) {
-  bitmap_ |= MakeMask(chunk_index, len);
+  uint64_t mask = MakeMask(chunk_index, len);
+  assert(!(bitmap_ & mask)); // implies overflow of the group buffer
+  bitmap_ |= mask;
 }
 
 inline void Waiter::Join() {
