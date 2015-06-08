@@ -41,38 +41,58 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
   char local_buf[total];
   CRC32DataEncode(local_buf, timestamp, data, size);
 
-  const uint64_t addr = address_.fetch_add(total);
-  Waiter &waiter = buffer_.GetWaiter(addr);
+  const uint64_t head_addr = address_.fetch_add(total);
+  int len;
   int8_t *dest;
-  if (buffer_.IsFlusher(addr, total)) {
-    int len = total;
-    dest = buffer_.GetBuffer(addr, len);
-    memcpy(dest, local_buf, len);
-    waiter.MarkDirty(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
-
-    Waiter *next = nullptr;
-    if (len < total) {
-      assert(buffer_.PartitionOffset(addr + len) == 0);
-      int rest = total - len;
-      dest = buffer_.GetBuffer(addr + len, rest);
-      memcpy(dest, local_buf, rest);
-      assert(len + rest == total); // TODO
-      next = &buffer_.GetWaiter(addr + buffer_.partition_size());
-      next->Register();
-      next->MarkDirty(0, buffer_.NumChunks(rest));
+  if (buffer_.IsFlusher(head_addr, total)) {
+    const uint64_t end_addr = head_addr + total;
+    const uint64_t end_part = buffer_.Partition(end_addr);
+    const int end_len = buffer_.PartitionOffset(end_addr);
+    assert(int(end_addr - end_part) == end_len);
+    Waiter *end_waiter = nullptr;
+    if (end_len) { // handles the tail first
+      len = end_len;
+      dest = buffer_.GetBuffer(end_part, len);
+      assert(len == end_len);
+      memcpy(dest, local_buf + (end_part - head_addr), len);
+      end_waiter = &buffer_.GetWaiter(end_addr);
+      end_waiter->Register();
+      end_waiter->MarkDirty(0, buffer_.NumChunks(len));
     }
 
-    waiter.FlusherWait(); // waiting for worker threads to finish copying data
-    writer_.Write(local_buf, total, addr, flag);
-    waiter.Release();
-    buffer_.GetWaiter(addr + buffer_.buffer_size()).FlusherPost(); // TODO
-    if (next) next->Join();
+    const uint64_t head_part = buffer_.Partition(head_addr);
+    uint64_t mid;
+    if (head_part != head_addr) { // handles the head
+      len = total;
+      dest = buffer_.GetBuffer(head_addr, len);
+      memcpy(dest, local_buf, len);
+      assert((unsigned)len == head_part + buffer_.partition_size() - head_addr);
+      Waiter &head_waiter = buffer_.GetWaiter(head_addr);
+      head_waiter.MarkDirty(buffer_.ChunkIndex(head_addr),
+          buffer_.NumChunks(len));
+      head_waiter.FlusherWait(); // waits for other threads to finish copying
+      // Flush of the whole head buffer
+      writer_.Write(buffer_.GetPartition(head_addr),
+          buffer_.partition_size(), head_part, flag);
+      head_waiter.Release();
+      buffer_.GetWaiter(head_addr + buffer_.buffer_size()).FlusherPost();
+
+      mid = head_part + buffer_.partition_size();
+    } else {
+      mid = head_part;
+    }
+    // Flush of whole partitions without using buffers
+    writer_.Write(local_buf + (mid - head_addr),
+        total - end_len - (mid - head_addr), mid, flag);
+    
+    if (end_waiter) end_waiter->Join();
   } else { // worker thread
-    int len = total;
-    dest = buffer_.GetBuffer(addr, len);
+    len = total;
+    dest = buffer_.GetBuffer(head_addr, len);
     memcpy(dest, local_buf, len);
     assert(len == total);
-    waiter.Join(buffer_.ChunkIndex(addr), buffer_.NumChunks(len));
+    buffer_.GetWaiter(head_addr).Join(
+        buffer_.ChunkIndex(head_addr), buffer_.NumChunks(len));
   }
   return 0;
 }
