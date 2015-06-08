@@ -75,7 +75,6 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
       writer_.Write(buffer_.GetPartition(head_addr),
           buffer_.partition_size(), head_part, flag);
       head_waiter.Release();
-      buffer_.GetWaiter(head_addr + buffer_.buffer_size()).FlusherPost();
 
       mid = head_part + buffer_.partition_size();
     } else {

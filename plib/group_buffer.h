@@ -79,7 +79,6 @@ inline GroupBuffer::GroupBuffer(
   waitlists_ = new Waitlist[num_partitions()]();
   for (int i = 0; i < num_partitions(); ++i) {
     waitlists_[i].CreateList(1 << waitlist_shifts_);
-    waitlists_[i][0].FlusherPost(); // TODO: move to Waiter's constructor 
   }
 }
 

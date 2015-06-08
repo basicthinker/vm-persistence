@@ -34,10 +34,8 @@ class Waiter {
   void Join(int chunk_index, int len); // Combination of the above three
   void Release(); // Releases worker threads blocked on this waiter.
 
-  // Called by the flusher thread, waiting for when the buffer is available
+  // Called by the flusher thread, waiting for the buffer to be filled out
   void FlusherWait();
-  // Called by the previous flusher thread that just finishes its own flushing
-  void FlusherPost();
 
   static const int kShiftsToNumChunks = 6; // 2 ^ 6 = 64
 
@@ -47,7 +45,6 @@ class Waiter {
   alignas(64) std::atomic_int count_; // Number of waiting threads
   alignas(64) std::atomic_uint_fast64_t bitmap_;
   alignas(64) Notifier workers_sem_;
-  Notifier flusher_sem_;
 };
 
 // Manages a set of waiters
@@ -107,14 +104,9 @@ inline void Waiter::Release() {
 }
 
 inline void Waiter::FlusherWait() {
-  flusher_sem_.Wait();
   while (bitmap_ != UINT64_MAX) {
     asm volatile("pause\n": : :"memory");
   }
-}
-
-inline void Waiter::FlusherPost() {
-  flusher_sem_.Notify();
 }
 
 // Implementation of Waitlist
