@@ -19,6 +19,8 @@
 
 namespace plib {
 
+static const int kMinWriteSize = 512; // bytes
+
 class GroupCommitter {
  public:
   GroupCommitter(int num_lanes, int buffer_size, Writer &writer);
@@ -37,9 +39,11 @@ inline GroupCommitter::GroupCommitter(int nlanes, int size, Writer &writer) :
 
 inline int GroupCommitter::Commit(uint64_t timestamp,
     void *data, uint32_t size, int flag) {
-  const int total = buffer_.CeilToChunk(CRC32DataLength(size));
+  int crc32len = buffer_.CeilToChunk(CRC32DataLength(size));
+  const int total = crc32len < kMinWriteSize ? kMinWriteSize : crc32len;
   char local_buf[total];
   CRC32DataEncode(local_buf, timestamp, data, size);
+  if (crc32len < total) memset(local_buf + crc32len, 0, total - crc32len);
 
   const uint64_t head_addr = address_.fetch_add(total);
   int len;
