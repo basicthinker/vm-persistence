@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <fcntl.h>
+#include <unistd.h>
 #include <linux/nvme.h>
 #include <sys/ioctl.h>
 
@@ -31,6 +32,15 @@ class SleepWriter : public Writer {
  private:
   int latency_; // microsec
   int bandwidth_; // bytes/usec
+};
+
+class FileWriter : public Writer {
+ public:
+  FileWriter(const char *path);
+  int Write(void *mem, int len, uint64_t addr, int flag);
+
+ private:
+  int fildes_;
 };
 
 class NVMeWriter : public Writer {
@@ -58,6 +68,21 @@ inline SleepWriter::SleepWriter(int latency, int bandwidth) :
 inline int SleepWriter::Write(void *mem, int len, uint64_t addr, int flag) {
   int usec = latency_ + len / bandwidth_;
   std::this_thread::sleep_for(std::chrono::microseconds(usec));
+  return 0;
+}
+
+// Implementation of FileWriter
+
+inline FileWriter::FileWriter(const char *path) {
+  mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP;
+  fildes_ = open(path, O_RDWR | O_CREAT, mode);
+  if (fildes_ < 0) perror("[ERROR] FileWriter::FileWriter open");
+}
+
+inline int FileWriter::Write(void *mem, int len, uint64_t addr, int flag) {
+  if (fildes_ < 0) return EFAULT;
+  ssize_t bytes = pwrite(fildes_, mem, len, addr);
+  if (bytes < 0) perror("[ERROR] FileWriter::Write pwrite");
   return 0;
 }
 

@@ -54,6 +54,9 @@ int main(int argc, const char *argv[]) {
   plib::Writer *writer;
   if (strcmp(method, "sleep") == 0) {
     writer = new plib::SleepWriter(50, 200);
+  } else if (strcmp(method, "file") == 0) {
+    //TODO hard coded parameter
+    writer = new plib::FileWriter("file_writer.data");
   } else if (strcmp(method, "nvme") == 0) {
     //TODO hard coded parameter
     writer = new plib::NVMeWriter("/dev/nvme0n1p1", 9);
