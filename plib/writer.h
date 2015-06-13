@@ -54,8 +54,7 @@ class NVMeWriter : public Writer {
   int fildes_;
 
   int NumBlocks(int size) {
-    size_t n = (size >> block_bits_) + ((size & block_mask_) > 0);
-    return n;
+    return (size >> block_bits_) + ((size & block_mask_) > 0);
   }
 };
 
@@ -98,6 +97,7 @@ inline NVMeWriter::NVMeWriter(const char *dev, int block_bits) :
 }
 
 inline int NVMeWriter::Write(void *mem, int len, uint64_t addr, int flag) {
+  if (!len) return 0;
   struct nvme_user_io io = {};
   io.opcode = nvme_cmd_write;
   io.addr = (unsigned long)mem;

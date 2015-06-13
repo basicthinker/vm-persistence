@@ -51,7 +51,7 @@ int main(int argc, const char *argv[]) {
   const int num_lanes = atoi(argv[5]);
   const int group_size = atoi(argv[6]);
 
-  plib::Writer *writer;
+  plib::Writer *writer = nullptr;
   if (strcmp(method, "sleep") == 0) {
     writer = new plib::SleepWriter(50, 200);
   } else if (strcmp(method, "file") == 0) {
@@ -84,6 +84,6 @@ int main(int argc, const char *argv[]) {
   uint64_t latency = num_threads * nsec / (n2 - n1) / 1000; // usec
   printf("%f\t%lu\n", thr, latency);
 
-  delete writer;
+  if (writer) delete writer;
 }
 
