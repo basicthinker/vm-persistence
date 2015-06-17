@@ -28,7 +28,7 @@ void Checkpointing(plib::Writer *writer,
   uint64_t addr = 100 * (uint64_t(1) << 30); // 100 GB
   char buffer[buf_len];
   uint64_t addr1 = 0, addr2 = 0;
-  int interval = buf_len / throughput;
+  //int interval = buf_len / throughput;
   while (true) {
     if (!addr1 && g_total_num > n1) {
       addr1 = addr;
@@ -38,7 +38,7 @@ void Checkpointing(plib::Writer *writer,
     }
     writer->Write(buffer, buf_len, addr, NVME_RW_DSM_LATENCY_IDLE);
     addr += buf_len;
-    std::this_thread::sleep_for(std::chrono::microseconds(interval));
+    //std::this_thread::sleep_for(std::chrono::microseconds(interval));
   }
   ckpt_bytes = addr2 - addr1;
 }

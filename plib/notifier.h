@@ -56,7 +56,7 @@ inline int SleepingNotifier::Wait() {
     perror("[ERROR] SleepingNotifier::Wait clock_gettime()");
     return -1;
   }
-  timeout.tv_sec += 1;
+  timeout.tv_sec += 2;
   if (sem_timedwait(&sem_, &timeout)) {
     perror("[WARNING] SleepingNotifier::Wait sem_timedwait()");
     return -1;
@@ -82,7 +82,7 @@ inline int SpinningNotifier::Wait() {
     perror("[ERROR] SpinningNotifier::Wait clock_gettime()");
     return -1;
   }
-  t1.tv_sec += 1;
+  t1.tv_sec += 2;
   struct timespec t2;
   while (true) {
     if (!waiting_) {

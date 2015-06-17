@@ -87,6 +87,9 @@ inline void Waiter::MarkDirty(int chunk_index, int len) {
 inline void Waiter::Join() {
   if (workers_sem_.Wait()) {
     count_--;
+#ifdef DEBUG_PLIB
+    printf("[plib] Waiter@%p timed out: bitmap=%lo\n", this, bitmap_.load());
+#endif
   }
 }
 
@@ -104,6 +107,9 @@ inline void Waiter::Release() {
 }
 
 inline void Waiter::FlusherWait() {
+#ifdef DEBUG_PLIB
+  printf("[plib] Waiter@%p to be fushed by thread %lu\n", this, pthread_self());
+#endif
   while (bitmap_ != UINT64_MAX) {
     asm volatile("pause\n": : :"memory");
   }
