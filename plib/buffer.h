@@ -33,6 +33,9 @@ class Buffer {
   int8_t *data(size_t offset) const { return data_ + offset; }
   size_t chunk_size() const { return chunk_mask_ + 1; }
 
+  // Applies to both length and address
+  uint64_t CeilToChunk(uint64_t value) const;
+
   void Register();
   void MarkDirty(int offset, int len);
   void Join(); // Blocks the calling thread until the flusher notifies.
@@ -45,7 +48,6 @@ class Buffer {
   static const int kShiftNumChunks = 6; // 2 ^ 6 = 64 bits
 
  private:
-  size_t NumChunks(size_t len) const;
   uint64_t MakeMask(int chunk_index, int num_chunks);
 
   int8_t *data_;
@@ -76,13 +78,13 @@ inline Buffer::~Buffer() {
   delete[] data_;
 }
 
-inline size_t Buffer::NumChunks(size_t len) const {
-  size_t floor = len & ~chunk_mask_;
-  return (len == floor) ? floor : floor + chunk_size();
+inline uint64_t Buffer::CeilToChunk(uint64_t value) const {
+  uint64_t floor = value & ~chunk_mask_;
+  return (value == floor) ? floor : floor + chunk_size();
 }
 
 inline uint64_t Buffer::MakeMask(int chunk_index, int num_chunks) {
-  if (chunk_index < 0 || chunk_index >= 64 ||
+  if (chunk_index < 0 || chunk_index > 63 ||
       num_chunks < 0 || chunk_index + num_chunks > 64) {
     fprintf(stderr, "[ERROR] Invalid mask: %d, %d\n", chunk_index, num_chunks);
     return 0;
@@ -113,9 +115,9 @@ inline void Buffer::Join() {
   }
 }
 
-inline void Buffer::Join(int chunk_index, int len) {
+inline void Buffer::Join(int offset, int len) {
   Register();
-  MarkDirty(chunk_index, len);
+  MarkDirty(offset, len);
   Join();
 }
 

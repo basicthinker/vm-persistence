@@ -48,6 +48,7 @@ inline BufferArray::BufferArray(
     buffer_mask_((uint64_t(1) << buffer_shift) - 1),
     array_shift_(array_shift),
     array_mask_((uint64_t(1) << array_shift) - 1) {
+
   array_ = (Buffer *)malloc(sizeof(Buffer) << array_shift_);
   for (int i = 0; i < array_size(); ++i) {
     ::new (array_ + i) Buffer(buffer_shift_);
@@ -55,7 +56,10 @@ inline BufferArray::BufferArray(
 }
 
 inline BufferArray::~BufferArray() {
-  delete[] array_;
+  for (int i = 0; i < array_size(); ++i) {
+    array_[i].~Buffer();
+  }
+  free(array_);
 }
 
 inline bool BufferArray::IsFlusher(uint64_t addr, int len) const {

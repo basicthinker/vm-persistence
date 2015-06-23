@@ -41,11 +41,10 @@ inline GroupCommitter::GroupCommitter(int buffer_size, int num_buffers,
 
 inline int GroupCommitter::Commit(uint64_t timestamp,
     void *data, uint32_t size, int flag) {
-  int crc32len = CRC32DataLength(size);
+  int crc32len = buffers_[0]->CeilToChunk(CRC32DataLength(size));
   const int total = crc32len < kMinWriteSize ? kMinWriteSize : crc32len;
-  char local_buf[total];
+  char local_buf[total]; // may contain redandunt trailing bytes
   CRC32DataEncode(local_buf, timestamp, data, size);
-  if (crc32len < total) memset(local_buf + crc32len, 0, total - crc32len);
 
   const uint64_t head_addr = address_.fetch_add(total);
   const int head_offset = buffers_.BufferOffset(head_addr);
@@ -62,11 +61,12 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
       tail_buffer->MarkDirty(0, tail_len);
     }
 
-    int head_len = buffers_.buffer_size() - head_offset;
+    int head_len;
     uint64_t mid;
     if (head_offset) { // handles the head
       Buffer *head_buffer = buffers_[head_addr];
       int8_t *dest = head_buffer->data(head_offset);
+      head_len = buffers_.buffer_size() - head_offset;
       memcpy(dest, local_buf, head_len);
       head_buffer->MarkDirty(head_offset, head_len);
       head_buffer->FlusherWait(); // waits for other threads to finish copying
@@ -77,18 +77,19 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
 
       mid = head_addr + head_len;
     } else {
+      head_len = 0;
       mid = head_addr;
     }
     // Flush of whole partitions without using buffers
-    writer_.Write(local_buf + (mid - head_addr),
-        total - head_len - tail_len, mid, flag);
+    writer_.Write(local_buf + head_len, total - head_len - tail_len,
+        mid, flag);
     
     if (tail_buffer) tail_buffer->Join();
   } else { // worker thread
     Buffer *buffer = buffers_[head_addr];
     int8_t *dest = buffer->data(head_offset);
     memcpy(dest, local_buf, total);
-    buffer->Join(buffers_.BufferOffset(head_addr), total);
+    buffer->Join(head_offset, total);
   }
   return 0;
 }
