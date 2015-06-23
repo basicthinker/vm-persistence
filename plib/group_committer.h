@@ -14,7 +14,7 @@
 #include <atomic>
 
 #include "format.h"
-#include "group_buffer.h"
+#include "buffer_array.h"
 #include "writer.h"
 
 namespace plib {
@@ -29,73 +29,66 @@ class GroupCommitter {
  
  private:
   std::atomic_uint_fast64_t address_ alignas(64);
-  GroupBuffer buffer_ alignas(64);
+  BufferArray buffers_ alignas(64);
   Writer &writer_;
 };
 
-inline GroupCommitter::GroupCommitter(int nlanes, int size, Writer &writer) :
-    address_(0), buffer_(log2(nlanes), log2(size), 4), writer_(writer) {
+inline GroupCommitter::GroupCommitter(int buffer_size, int num_buffers,
+    Writer &writer) :
+    address_(0), buffers_(log2(buffer_size), log2(num_buffers)),
+    writer_(writer) {
 }
 
 inline int GroupCommitter::Commit(uint64_t timestamp,
     void *data, uint32_t size, int flag) {
-  int crc32len = buffer_.CeilToChunk(CRC32DataLength(size));
+  int crc32len = CRC32DataLength(size);
   const int total = crc32len < kMinWriteSize ? kMinWriteSize : crc32len;
   char local_buf[total];
   CRC32DataEncode(local_buf, timestamp, data, size);
   if (crc32len < total) memset(local_buf + crc32len, 0, total - crc32len);
 
   const uint64_t head_addr = address_.fetch_add(total);
-  int len;
-  int8_t *dest;
-  if (buffer_.IsFlusher(head_addr, total)) {
-    const uint64_t end_addr = head_addr + total;
-    const uint64_t end_part = buffer_.Partition(end_addr);
-    const int end_len = buffer_.PartitionOffset(end_addr);
-    assert(int(end_addr - end_part) == end_len);
-    Waiter *end_waiter = nullptr;
-    if (end_len) { // handles the tail first
-      len = end_len;
-      dest = buffer_.GetBuffer(end_part, len);
-      assert(len == end_len);
-      memcpy(dest, local_buf + (end_part - head_addr), len);
-      end_waiter = &buffer_.GetWaiter(end_addr);
-      end_waiter->Register();
-      end_waiter->MarkDirty(0, buffer_.NumChunks(len));
+  const int head_offset = buffers_.BufferOffset(head_addr);
+
+  if (buffers_.IsFlusher(head_addr, total)) {
+    uint64_t end_addr = head_addr + total;
+    int tail_len = buffers_.BufferOffset(end_addr);
+    Buffer *tail_buffer = nullptr;
+    if (tail_len) { // handles the tail first
+      tail_buffer = buffers_[end_addr - 1];
+      tail_buffer->Register();
+      int8_t *dest = tail_buffer->data(0);
+      memcpy(dest, local_buf + (total - tail_len), tail_len);
+      tail_buffer->MarkDirty(0, tail_len);
     }
 
-    const uint64_t head_part = buffer_.Partition(head_addr);
+    int head_len = buffers_.buffer_size() - head_offset;
     uint64_t mid;
-    if (head_part != head_addr) { // handles the head
-      len = total;
-      dest = buffer_.GetBuffer(head_addr, len);
-      memcpy(dest, local_buf, len);
-      assert((unsigned)len == head_part + buffer_.partition_size() - head_addr);
-      Waiter &head_waiter = buffer_.GetWaiter(head_addr);
-      head_waiter.MarkDirty(buffer_.ChunkIndex(head_addr),
-          buffer_.NumChunks(len));
-      head_waiter.FlusherWait(); // waits for other threads to finish copying
+    if (head_offset) { // handles the head
+      Buffer *head_buffer = buffers_[head_addr];
+      int8_t *dest = head_buffer->data(head_offset);
+      memcpy(dest, local_buf, head_len);
+      head_buffer->MarkDirty(head_offset, head_len);
+      head_buffer->FlusherWait(); // waits for other threads to finish copying
       // Flush of the whole head buffer
-      writer_.Write(buffer_.GetPartition(head_addr),
-          buffer_.partition_size(), head_part, flag);
-      head_waiter.Release();
+      writer_.Write(head_buffer->data(0), buffers_.buffer_size(),
+          head_addr - head_offset, flag);
+      head_buffer->Release();
 
-      mid = head_part + buffer_.partition_size();
+      mid = head_addr + head_len;
     } else {
-      mid = head_part;
+      mid = head_addr;
     }
     // Flush of whole partitions without using buffers
     writer_.Write(local_buf + (mid - head_addr),
-        total - end_len - (mid - head_addr), mid, flag);
+        total - head_len - tail_len, mid, flag);
     
-    if (end_waiter) end_waiter->Join();
+    if (tail_buffer) tail_buffer->Join();
   } else { // worker thread
-    len = total;
-    dest = buffer_.GetBuffer(head_addr, len);
-    memcpy(dest, local_buf, len);
-    assert(len == total);
-    buffer_.GetWaiter(head_addr).Join(
-        buffer_.ChunkIndex(head_addr), buffer_.NumChunks(len));
+    Buffer *buffer = buffers_[head_addr];
+    int8_t *dest = buffer->data(head_offset);
+    memcpy(dest, local_buf, total);
+    buffer->Join(buffers_.BufferOffset(head_addr), total);
   }
   return 0;
 }
@@ -103,3 +96,4 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
 } // namespace plib
 
 #endif // VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
+
