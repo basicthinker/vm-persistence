@@ -48,13 +48,19 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
 
   const uint64_t head_addr = address_.fetch_add(total);
   const int head_offset = buffers_.BufferOffset(head_addr);
-
+#ifdef DEBUG_PLIB
+  pthread_t tid = pthread_self();
+#endif
   if (buffers_.IsFlusher(head_addr, total)) {
     uint64_t end_addr = head_addr + total;
     int tail_len = buffers_.BufferOffset(end_addr);
     Buffer *tail_buffer = nullptr;
     if (tail_len) { // handles the tail first
       tail_buffer = buffers_[end_addr - 1];
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "Commit %lu %lu\ttail\t%p\t%d\n",
+          tid, head_addr, tail_buffer, tail_len);
+#endif
       tail_buffer->Register();
       int8_t *dest = tail_buffer->data(0);
       memcpy(dest, local_buf + (total - tail_len), tail_len);
@@ -65,6 +71,10 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     uint64_t mid;
     if (head_offset) { // handles the head
       Buffer *head_buffer = buffers_[head_addr];
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "Commit %lu %lu\thead\t%p\t%d\n",
+          tid, head_addr, head_buffer, head_offset);
+#endif
       int8_t *dest = head_buffer->data(head_offset);
       head_len = buffers_.buffer_size() - head_offset;
       memcpy(dest, local_buf, head_len);

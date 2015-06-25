@@ -46,7 +46,7 @@ void Checkpointing(plib::Writer *writer,
   ckpt_bytes = addr2 - addr1;
 }
 
-void DoPersist(plib::GroupCommitter *committer, int size) {
+void DoPersist(plib::GroupCommitter *committer, const int size, bool rand) {
   using namespace std::chrono;
 
   char mem[size];
@@ -56,8 +56,8 @@ void DoPersist(plib::GroupCommitter *committer, int size) {
     else if (seq == n2) t2 = high_resolution_clock::now();
     else if (seq > n2) break;
 
-    if (!size) size = 100 + rand() % 12000;
-    int err = committer->Commit(seq, mem, size, NVME_RW_DSM_LATENCY_LOW);
+    int err = committer->Commit(seq, mem,
+        (rand ? random() % size : size), NVME_RW_DSM_LATENCY_LOW);
     assert(!err);
   }
 }
@@ -65,14 +65,14 @@ void DoPersist(plib::GroupCommitter *committer, int size) {
 int main(int argc, const char *argv[]) {
   using namespace std::chrono;
   if (argc != 7 && argc != 9) {
-    printf("Usage: %s METHOD SIZE_TRANS #TRANS #THREADS BUFFER_SIZE #BUFFERS "
+    printf("Usage: %s METHOD WRITE_SIZE #WRITES #THREADS BUFFER_SIZE #BUFFERS "
         "[CKPT_LEN THROUGHPUT]\n", argv[0]);
     return 1;
   }
 
   const char *method = argv[1];
-  const int size_trans = atoi(argv[2]); // 0 denotes random
-  const int num_trans = atoi(argv[3]);
+  int write_size = atoi(argv[2]); // 0 denotes random and shall be set later
+  const int num_writes = atoi(argv[3]);
   const int num_threads = atoi(argv[4]);
   const int buffer_size = atoi(argv[5]);
   const int num_buffers = atoi(argv[6]);
@@ -99,8 +99,8 @@ int main(int argc, const char *argv[]) {
   int err = committer.Commit(0, mem, buffer_size * num_buffers);
   assert(!err);
 
-  n1 = num_trans * 0.1;
-  n2 = num_trans * 0.9;
+  n1 = num_writes * 0.1;
+  n2 = num_writes * 0.9;
 
   std::thread ckpt_thread;
   if (ckpt_len) {
@@ -108,8 +108,10 @@ int main(int argc, const char *argv[]) {
   }
 
   std::thread threads[num_threads];
+  bool rand = (write_size == 0);
+  if (write_size == 0) write_size = buffer_size * 3;
   for (std::thread &t : threads) {
-    t = std::thread(DoPersist, &committer, size_trans);
+    t = std::thread(DoPersist, &committer, write_size, rand);
   }
   for (std::thread &t : threads) {
     t.join();
@@ -117,7 +119,7 @@ int main(int argc, const char *argv[]) {
   if (ckpt_thread.joinable()) ckpt_thread.join();
 
   uint64_t nsec = duration_cast<nanoseconds>(t2 - t1).count();
-  double thr = (n2 - n1) * size_trans * 1000 / (double)nsec; // MB/s
+  double thr = (n2 - n1) * write_size * 1000 / (double)nsec; // MB/s
   uint64_t latency = num_threads * nsec / (n2 - n1) / 1000; // usec
   printf("%f\t%lu\n", thr, latency);
 

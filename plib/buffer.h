@@ -102,16 +102,19 @@ inline void Buffer::MarkDirty(int offset, int len) {
   int first_index = offset >> chunk_shift_;
   int last_index = (offset + len - 1) >> chunk_shift_;
   uint64_t mask = MakeMask(first_index, last_index - first_index + 1);
+#ifdef DEBUG_PLIB
+  fprintf(stderr, "MarkDirty\t>>\t%p\t%lx\t%lx\n", this, bitmap_.load(), mask);
+#endif
   assert(!(bitmap_ & mask)); // implies overflow of the group buffer
   bitmap_ |= mask;
+#ifdef DEBUG_PLIB
+  fprintf(stderr, "MarkDirty\t<<\t%p\t%lx\n", this, bitmap_.load());
+#endif
 }
 
 inline void Buffer::Join() {
   if (workers_sem_.Wait()) {
     count_--;
-#ifdef DEBUG_PLIB
-    printf("[plib] Buffer@%p timed out: bitmap=%lo\n", this, bitmap_.load());
-#endif
   }
 }
 
@@ -129,9 +132,6 @@ inline void Buffer::Release() {
 }
 
 inline void Buffer::FlusherWait() {
-#ifdef DEBUG_PLIB
-  printf("[plib] Buffer@%p to be fushed by thread %lu\n", this, pthread_self());
-#endif
   while (bitmap_ != UINT64_MAX) {
     asm volatile("pause\n": : :"memory");
   }
