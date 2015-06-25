@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cstdint>
 #include <atomic>
+#include <mutex>
 
 #include "notifier.h"
 
@@ -36,6 +37,7 @@ class Buffer {
   // Applies to both length and address
   uint64_t CeilToChunk(uint64_t value) const;
 
+  bool TryTag(uint64_t tag);
   void Register();
   void MarkDirty(int offset, int len);
   void Join(); // Blocks the calling thread until the flusher notifies.
@@ -60,6 +62,9 @@ class Buffer {
   alignas(64) std::atomic_int count_; // Number of waiting threads
   alignas(64) std::atomic_uint_fast64_t bitmap_;
   alignas(64) Notifier workers_sem_;
+
+  std::mutex mutex_;
+  uint64_t tag_;
 };
 
 // Implementation of Buffer
@@ -92,6 +97,13 @@ inline uint64_t Buffer::MakeMask(int chunk_index, int num_chunks) {
   if (num_chunks == 64) return -1;
   uint64_t v = (uint64_t(1) << num_chunks) - 1;
   return v << (64 - chunk_index - num_chunks);
+}
+
+inline bool Buffer::TryTag(uint64_t tag) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (tag_ && tag_ != tag) return false;
+  tag_ = tag;
+  return true;
 }
 
 inline void Buffer::Register() {
@@ -129,6 +141,9 @@ inline void Buffer::Release() {
   workers_sem_.Notify(count_);
   count_ = 0;
   bitmap_ = 0;
+  mutex_.lock();
+  tag_ = 0;
+  mutex_.unlock();
 }
 
 inline void Buffer::FlusherWait() {

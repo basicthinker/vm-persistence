@@ -28,6 +28,7 @@ class BufferArray {
   int buffer_size() const { return buffer_mask_ + 1; }
   int array_size() const { return array_mask_ + 1; }
   uint64_t BufferOffset(uint64_t addr) const { return addr & buffer_mask_; }
+  uint64_t BufferTag(uint64_t addr) const { return addr >> buffer_shift_; }
 
   bool IsFlusher(uint64_t addr, int len) const;
   Buffer *operator[](uint64_t addr);

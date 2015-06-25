@@ -57,6 +57,7 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     Buffer *tail_buffer = nullptr;
     if (tail_len) { // handles the tail first
       tail_buffer = buffers_[end_addr - 1];
+      while (!tail_buffer->TryTag(buffers_.BufferTag(end_addr - 1))) {}
 #ifdef DEBUG_PLIB
       fprintf(stderr, "Commit %lu %lu\ttail\t%p\t%d\n",
           tid, head_addr, tail_buffer, tail_len);
@@ -71,6 +72,7 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     uint64_t mid;
     if (head_offset) { // handles the head
       Buffer *head_buffer = buffers_[head_addr];
+      while (!head_buffer->TryTag(buffers_.BufferTag(head_addr))) {}
 #ifdef DEBUG_PLIB
       fprintf(stderr, "Commit %lu %lu\thead\t%p\t%d\n",
           tid, head_addr, head_buffer, head_offset);
@@ -99,6 +101,7 @@ inline int GroupCommitter::Commit(uint64_t timestamp,
     Buffer *buffer = buffers_[head_addr];
     int8_t *dest = buffer->data(head_offset);
     memcpy(dest, local_buf, total);
+    while (!buffer->TryTag(buffers_.BufferTag(head_addr))) {}
     buffer->Join(head_offset, total);
   }
   return 0;
