@@ -1,5 +1,6 @@
 CC=g++
-CFLAGS+=-std=gnu++11 -g -Wall #-DSPINNING_NOTIFIER #-DTRACE
+CFLAGS+=-std=gnu++1y -g -Wall #-DSPINNING_NOTIFIER #-DTRACE
+#CFLAGS+=-DDEBUG_PLIB
 LDFLAGS+=-lpthread -lrt -lboost_system -lz -lpmem
 SRCS=$(wildcard *.cc)
 OBJS=$(SRCS:.cc=.out)

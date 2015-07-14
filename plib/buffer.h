@@ -18,138 +18,138 @@
 
 namespace plib {
 
-#ifdef SPINNING_NOTIFIER
-  using Notifier = SpinningNotifier;
-#else
-  using Notifier = SleepingNotifier;
-#endif
-
 // The small data buffer, keeping track of waiting threads.
 class Buffer {
+  using Notifier = SleepingNotifier;
  public:
-  // (1 << buffer_shift) equals to the size of the buffer in bytes.
-  Buffer(int buffer_shift);
+  Buffer(int buffer_size);
   ~Buffer();
 
-  int8_t *data(size_t offset) const { return data_ + offset; }
-  size_t chunk_size() const { return chunk_mask_ + 1; }
+  int8_t *data(size_t offset) const;
 
-  // Applies to both length and address
-  uint64_t CeilToChunk(uint64_t value) const;
+  void Tag(uint64_t thread_tag);
+  // Returns if the current thread should be the flusher, i.e., to do flushing.
+  bool Join(uint64_t thread_tag, int len);
+  // Releases filler threads blocked on this buffer. Only called by a flusher.
+  void Release(uint64_t thread_tag);
 
-  bool TryTag(uint64_t tag);
-  void Register();
-  void MarkDirty(int offset, int len);
-  void Join(); // Blocks the calling thread until the flusher notifies.
-  void Join(int offset, int len); // Combination of the above three.
-  void Release(); // Releases worker threads blocked on this waiter.
-
-  // Called by the flusher thread, waiting for the buffer to be filled out.
-  void FlusherWait();
-
-  static const int kShiftNumChunks = 6; // 2 ^ 6 = 64 bits
+  // Used for pure filler threads
+  void Yield(uint64_t thread_tag, int len);
+  void Rejoin(uint64_t thread_tag);
 
  private:
-  uint64_t MakeMask(int chunk_index, int num_chunks);
+  enum State {
+    kFlushing = 0,
+    kFilling,
+    kFree,
+    kFull,
+  };
 
+  const int buffer_size_;
   int8_t *data_;
 
-  const int buffer_shift_;
-  const uint64_t buffer_mask_;
-  const int chunk_shift_;
-  size_t chunk_mask_;
-
-  alignas(64) std::atomic_int count_; // Number of waiting threads
-  alignas(64) std::atomic_uint_fast64_t bitmap_;
-  alignas(64) Notifier workers_sem_;
-
-  std::mutex mutex_;
+  State state_;
   uint64_t tag_;
+  int dirty_size_;
+
+  Notifier notifier_;
+
+  static const uint64_t kInvalidTag = UINT64_MAX;
 };
 
 // Implementation of Buffer
 
-inline Buffer::Buffer(int buffer_shift) :
-    buffer_shift_(buffer_shift),
-    buffer_mask_((uint64_t(1) << buffer_shift_) - 1),
-    chunk_shift_(buffer_shift - kShiftNumChunks),
-    chunk_mask_((size_t(1) << chunk_shift_) - 1),
-    count_(0), bitmap_(0) {
-  assert(chunk_shift_ > 0);
-  data_ = new int8_t[1 << buffer_shift_];
+inline Buffer::Buffer(int buffer_size) : buffer_size_(buffer_size),
+    state_(kFree), tag_(kInvalidTag), dirty_size_(0) {
+  data_ = new int8_t[buffer_size];
 }
 
 inline Buffer::~Buffer() {
   delete[] data_;
 }
 
-inline uint64_t Buffer::CeilToChunk(uint64_t value) const {
-  uint64_t floor = value & ~chunk_mask_;
-  return (value == floor) ? floor : floor + chunk_size();
+inline int8_t *Buffer::data(size_t offset) const {
+  assert(offset < (size_t)buffer_size_);
+  return data_ + offset;
 }
 
-inline uint64_t Buffer::MakeMask(int chunk_index, int num_chunks) {
-  if (chunk_index < 0 || chunk_index > 63 ||
-      num_chunks < 0 || chunk_index + num_chunks > 64) {
-    fprintf(stderr, "[ERROR] Invalid mask: %d, %d\n", chunk_index, num_chunks);
-    return 0;
-  }
-  if (num_chunks == 64) return -1;
-  uint64_t v = (uint64_t(1) << num_chunks) - 1;
-  return v << (64 - chunk_index - num_chunks);
+inline void Buffer::Tag(uint64_t thread_tag) {
+  auto lambda = [thread_tag, this]()->bool {
+    if (tag_ == thread_tag) {
+      assert(dirty_size_ < buffer_size_);
+      return Notifier::kRelease;
+    } else if (tag_ != kInvalidTag) {
+      return Notifier::kWait;
+    } else {
+      assert(state_ == kFree);
+      state_ = kFilling;
+      tag_ = thread_tag;
+      dirty_size_ = 0;
+      return Notifier::kRelease;
+    }
+  };
+
+  notifier_.Wait(lambda, lambda, [](){});
 }
 
-inline bool Buffer::TryTag(uint64_t tag) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (tag_ && tag_ != tag) return false;
-  tag_ = tag;
-  return true;
+inline bool Buffer::Join(uint64_t thread_tag, int len) {
+  auto pre = [thread_tag, len, this]()->bool {
+    dirty_size_ += len;
+    assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
+    if (dirty_size_ < buffer_size_) {
+      return Notifier::kWait;
+    } else {
+      state_ = kFlushing;
+      return Notifier::kRelease;
+    }
+  };
+
+  auto lambda = [thread_tag, this]()->bool {
+    if (tag_ != thread_tag) return Notifier::kRelease;
+    if (state_ == kFilling || state_ == kFlushing) {
+      return Notifier::kWait;
+    } else {
+      assert(dirty_size_ == buffer_size_);
+      state_ = kFlushing;
+      return Notifier::kRelease;
+    }
+  };
+
+  auto post = [thread_tag, this]()->State {
+    return (tag_ == thread_tag) ? state_ : kFree;
+  };
+
+  State state = notifier_.Wait(pre, lambda, post);
+  return state == kFlushing;
 }
 
-inline void Buffer::Register() {
-  count_++;
+inline void Buffer::Release(uint64_t thread_tag) {
+  auto pre = [thread_tag, this](){
+    assert(state_ == kFlushing && tag_ == thread_tag);
+    state_ = kFree;
+    tag_ = kInvalidTag;
+    dirty_size_ = 0;
+  };
+  notifier_.NotifyAll(pre);
 }
 
-inline void Buffer::MarkDirty(int offset, int len) {
-  int first_index = offset >> chunk_shift_;
-  int last_index = (offset + len - 1) >> chunk_shift_;
-  uint64_t mask = MakeMask(first_index, last_index - first_index + 1);
-#ifdef DEBUG_PLIB
-  fprintf(stderr, "MarkDirty\t>>\t%p\t%lx\t%lx\n", this, bitmap_.load(), mask);
-#endif
-  assert(!(bitmap_ & mask)); // implies overflow of the group buffer
-  bitmap_ |= mask;
-#ifdef DEBUG_PLIB
-  fprintf(stderr, "MarkDirty\t<<\t%p\t%lx\n", this, bitmap_.load());
-#endif
+inline void Buffer::Yield(uint64_t thread_tag, int len) {
+  auto pre = [thread_tag, len, this]()->bool {
+    dirty_size_ += len;
+    assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
+    if (dirty_size_ == buffer_size_) {
+      state_ = kFull;
+    }
+    return Notifier::kRelease;
+  };
+  notifier_.Wait(pre, [](){ return false; }, [](){});
 }
 
-inline void Buffer::Join() {
-  if (workers_sem_.Wait()) {
-    count_--;
-  }
-}
-
-inline void Buffer::Join(int offset, int len) {
-  Register();
-  MarkDirty(offset, len);
-  Join();
-}
-
-inline void Buffer::Release() {
-  assert(bitmap_ == UINT64_MAX); // requires FlusherWait() to have been called
-  workers_sem_.Notify(count_);
-  count_ = 0;
-  bitmap_ = 0;
-  mutex_.lock();
-  tag_ = 0;
-  mutex_.unlock();
-}
-
-inline void Buffer::FlusherWait() {
-  while (bitmap_ != UINT64_MAX) {
-    asm volatile("pause\n": : :"memory");
-  }
+inline void Buffer::Rejoin(uint64_t thread_tag) {
+  auto lambda = [thread_tag, this]()->bool {
+    return tag_ != thread_tag;
+  };
+  notifier_.Wait(lambda, lambda, [](){});
 }
 
 } // namespace plib

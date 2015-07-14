@@ -30,7 +30,6 @@ class BufferArray {
   uint64_t BufferOffset(uint64_t addr) const { return addr & buffer_mask_; }
   uint64_t BufferTag(uint64_t addr) const { return addr >> buffer_shift_; }
 
-  bool IsFlusher(uint64_t addr, int len) const;
   Buffer *operator[](uint64_t addr);
 
  private:
@@ -52,7 +51,7 @@ inline BufferArray::BufferArray(
 
   array_ = (Buffer *)malloc(sizeof(Buffer) << array_shift_);
   for (int i = 0; i < array_size(); ++i) {
-    ::new (array_ + i) Buffer(buffer_shift_);
+    ::new (array_ + i) Buffer(buffer_size());
   }
 }
 
@@ -61,10 +60,6 @@ inline BufferArray::~BufferArray() {
     array_[i].~Buffer();
   }
   free(array_);
-}
-
-inline bool BufferArray::IsFlusher(uint64_t addr, int len) const {
-  return (addr >> buffer_shift_) != ((addr + len) >> buffer_shift_);
 }
 
 inline Buffer *BufferArray::operator[](uint64_t addr) {
