@@ -19,11 +19,16 @@ namespace plib {
 
 class SleepingNotifier {
  public:
+  template<class Lambda>
+  auto TakeAction(Lambda lambda);
+
   template<class Pre, class Lambda, class Post>
   auto Wait(Pre pre, Lambda lambda, Post post);
 
-  template<class Pre>
-  void NotifyAll(Pre pre);
+  template<class Pre, class Lambda, class Post>
+  auto WaitFor(int seconds, Pre pre, Lambda lambda, Post post);
+
+  void NotifyAll();
 
   static const bool kWait = false;
   static const bool kRelease = true;
@@ -35,19 +40,36 @@ class SleepingNotifier {
 
 // Implementation of SleepingNotifier
 
+template<class Lambda>
+inline auto SleepingNotifier::TakeAction(Lambda lambda) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  return lambda();
+}
+
 template<class Pre, class Lambda, class Post>
 inline auto SleepingNotifier::Wait(Pre pre, Lambda lambda, Post post) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (pre() == kRelease) return post();
-  condition_.wait_for(lock, std::chrono::seconds(2), std::move(lambda));
+  do {
+    condition_.wait(lock);
+  } while (lambda() == kWait);
   return post();
 }
 
-template<class Pre>
-inline void SleepingNotifier::NotifyAll(Pre pre) {
-  mutex_.lock();
-  pre();
-  mutex_.unlock();
+template<class Pre, class Lambda, class Post>
+inline auto SleepingNotifier::WaitFor(int sec,
+    Pre pre, Lambda lambda, Post post) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (pre() == kRelease) return post(std::cv_status::no_timeout);
+  std::cv_status status;
+  auto time = std::chrono::system_clock::now() + std::chrono::seconds(sec);
+  do {
+    status = condition_.wait_until(lock, time);
+  } while (lambda() == kWait && status == std::cv_status::no_timeout);
+  return post(status);
+}
+
+inline void SleepingNotifier::NotifyAll() {
   condition_.notify_all();
 }
 

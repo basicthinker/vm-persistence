@@ -56,9 +56,8 @@ void DoPersist(plib::GroupCommitter *committer, const int size, bool rand) {
     else if (seq == n2) t2 = high_resolution_clock::now();
     else if (seq > n2) break;
 
-    int err = committer->Commit(seq, mem,
+    committer->Commit(seq, mem,
         (rand ? random() % size : size), NVME_RW_DSM_LATENCY_LOW);
-    assert(!err);
   }
 }
 
@@ -96,8 +95,7 @@ int main(int argc, const char *argv[]) {
 
   // commit from the main thread
   char mem[buffer_size * num_buffers];
-  int err = committer.Commit(0, mem, buffer_size * num_buffers);
-  assert(!err);
+  committer.Commit(0, mem, buffer_size * num_buffers);
 
   n1 = num_writes * 0.1;
   n2 = num_writes * 0.9;
