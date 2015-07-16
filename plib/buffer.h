@@ -45,10 +45,10 @@ class Buffer {
 
  private:
   enum State {
-    kFlushing = 0,
-    kFilling,
     kFree,
+    kFilling,
     kFull,
+    kFlushing,
   };
 
   const int buffer_size_;
@@ -87,6 +87,9 @@ inline void Buffer::Tag(uint64_t thread_tag) {
     } else if (tag_ != kInvalidTag) {
       return Notifier::kWait;
     } else {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Tag)\n", this, kFree, kFilling);
+#endif
       assert(state_ == kFree);
       state_ = kFilling;
       tag_ = thread_tag;
@@ -103,6 +106,9 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
       assert(dirty_size_ < buffer_size_);
       return true;
     } else if (tag_ == kInvalidTag) {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (TryTag)\n", this, kFree, kFilling);
+#endif
       assert(state_ == kFree);
       state_ = kFilling;
       tag_ = thread_tag;
@@ -119,10 +125,17 @@ inline bool Buffer::FillJoin(uint64_t thread_tag, int len) {
     dirty_size_ += len;
     assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
     if (dirty_size_ < buffer_size_) {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\t%d\n",
+          this, state_, kFilling, dirty_size_);
+#endif
       state_ = kFilling;
       return Notifier::kWait;
     } else {
       // Acts as the flusher.
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
+#endif
       state_ = kFlushing;
       return Notifier::kRelease;
     }
@@ -133,6 +146,9 @@ inline bool Buffer::FillJoin(uint64_t thread_tag, int len) {
     if (state_ == kFilling || state_ == kFlushing) {
       return Notifier::kWait;
     } else {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, kFull, kFlushing);
+#endif
       assert(state_ == kFull && dirty_size_ == buffer_size_);
       state_ = kFlushing;
       return Notifier::kRelease;
@@ -146,6 +162,10 @@ inline bool Buffer::FillJoin(uint64_t thread_tag, int len) {
       return true;
     }
     if (state_ != kFlushing) {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (FillJoin:timeout)\n",
+          this, state_, kFlushing);
+#endif
       state_ = kFlushing;
       return true;
     }
@@ -160,6 +180,9 @@ inline void Buffer::Fill(uint64_t thread_tag, int len) {
     dirty_size_ += len;
     assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
     if (dirty_size_ == buffer_size_) {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Fill)\n", this, state_, kFull);
+#endif
       state_ = kFull;
       return true;
     }
@@ -180,6 +203,10 @@ inline bool Buffer::Join(uint64_t thread_tag) {
         state_ == kFlushing) {
       return false;
     } else {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Join:timeout)\n",
+          this, state_, kFlushing);
+#endif
       state_ = kFlushing;
       return true;
     }
@@ -190,6 +217,9 @@ inline bool Buffer::Join(uint64_t thread_tag) {
 
 inline void Buffer::Release(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]() {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFree);
+#endif
     assert(tag_ == thread_tag && state_ == kFlushing);
     state_ = kFree;
     tag_ = kInvalidTag;

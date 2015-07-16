@@ -51,14 +51,16 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
   const uint64_t head_tag = buffers_.BufferTag(head_addr);
   const uint64_t tail_tag = buffers_.BufferTag(end_addr - 1);
   const int head_offset = buffers_.BufferOffset(head_addr);
-#ifdef DEBUG_PLIB
-  pthread_t tid = pthread_self();
-#endif
+
   if (head_tag == tail_tag) {
     assert(head_offset + total <= buffers_.buffer_size());
     Buffer *buffer = buffers_[head_addr];
+    int8_t *dest = buffer->data(head_offset);
     buffer->Tag(head_tag);
-    memcpy(buffer->data(head_offset), local_buf, total);
+    memcpy(dest, local_buf, total);
+#ifdef DEBUG_PLIB
+    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n", buffer, head_addr, end_addr);
+#endif
     if (buffer->FillJoin(head_tag, total)) {
       writer_.Write(buffer->data(0), buffers_.buffer_size(),
           head_addr - head_offset, flag);
@@ -71,10 +73,13 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
 
   const int tail_len = buffers_.BufferOffset(end_addr);
   int tail_status = (tail_len != 0); // 0: no tail; 1: not tagged
-  Buffer *tail_buffer = buffers_[end_addr];
+  Buffer *tail_buffer = buffers_[end_addr - 1];
   if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
-    int8_t *dest = tail_buffer->data(0);
-    memcpy(dest, local_buf + (total - tail_len), tail_len);
+    memcpy(tail_buffer->data(0), local_buf + (total - tail_len), tail_len);
+#ifdef DEBUG_PLIB
+    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
+        tail_buffer, end_addr - tail_len, end_addr);
+#endif
     tail_buffer->Fill(tail_tag, tail_len);
     tail_status = 2;
   }
@@ -82,14 +87,14 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
   int head_len;
   if (head_offset) { // handles the head
     Buffer *head_buffer = buffers_[head_addr];
-#ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit %lu %lu\thead\t%p\t%d\n",
-        tid, head_addr, head_buffer, head_offset);
-#endif
     int8_t *dest = head_buffer->data(head_offset);
     head_len = buffers_.buffer_size() - head_offset;
     head_buffer->Tag(head_tag);
     memcpy(dest, local_buf, head_len);
+#ifdef DEBUG_PLIB
+    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
+        head_buffer, head_addr, head_addr + head_len);
+#endif
     if (head_buffer->FillJoin(head_tag, head_len)) {
       writer_.Write(head_buffer->data(0), buffers_.buffer_size(),
           head_addr - head_offset, flag);
@@ -99,6 +104,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
       int8_t *dest = tail_buffer->data(0);
       memcpy(dest, local_buf + (total - tail_len), tail_len);
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
+          tail_buffer, end_addr - tail_len, end_addr);
+#endif
       tail_buffer->Fill(tail_tag, tail_len);
       tail_status = 2;
     }
@@ -113,6 +122,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     int8_t *dest = tail_buffer->data(0);
     tail_buffer->Tag(tail_tag);
     memcpy(dest, local_buf + (total - tail_len), tail_len);
+#ifdef DEBUG_PLIB
+    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
+        tail_buffer, end_addr - tail_len, end_addr);
+#endif
     if (tail_buffer->FillJoin(tail_tag, tail_len)) {
       writer_.Write(tail_buffer->data(0), buffers_.buffer_size(),
           end_addr - tail_len, flag);
