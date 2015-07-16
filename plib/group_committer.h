@@ -61,8 +61,13 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
 #ifdef DEBUG_PLIB
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n", buffer, head_addr, end_addr);
 #endif
-    if (buffer->FillJoin(head_tag, total)) {
-      writer_.Write(buffer->data(0), buffers_.buffer_size(),
+    int flush_size = buffer->FillJoin(head_tag, total);
+    if (flush_size) {
+#ifdef DEBUG_PLIB
+      if (flush_size < buffers_.buffer_size())
+        fprintf(stderr, "Incomplete: %p\t%d\n", buffer, flush_size);
+#endif
+      writer_.Write(buffer->data(0), flush_size,
           head_addr - head_offset, flag);
       buffer->Release(head_tag);
     }
@@ -95,8 +100,13 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
         head_buffer, head_addr, head_addr + head_len);
 #endif
-    if (head_buffer->FillJoin(head_tag, head_len)) {
-      writer_.Write(head_buffer->data(0), buffers_.buffer_size(),
+    int flush_size = head_buffer->FillJoin(head_tag, head_len);
+    if (flush_size) {
+#ifdef DEBUG_PLIB
+      if (flush_size < buffers_.buffer_size())
+        fprintf(stderr, "Incomplete: %p\t%d\n", head_buffer, flush_size);
+#endif
+      writer_.Write(head_buffer->data(0), flush_size,
           head_addr - head_offset, flag);
       head_buffer->Release(head_tag);
     }
@@ -126,13 +136,23 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
         tail_buffer, end_addr - tail_len, end_addr);
 #endif
-    if (tail_buffer->FillJoin(tail_tag, tail_len)) {
+    int flush_size = tail_buffer->FillJoin(tail_tag, tail_len);
+    if (flush_size) {
+#ifdef DEBUG_PLIB
+      if (flush_size < buffers_.buffer_size())
+        fprintf(stderr, "Incomplete: %p\t%d\n", tail_buffer, flush_size);
+#endif
       writer_.Write(tail_buffer->data(0), buffers_.buffer_size(),
           end_addr - tail_len, flag);
       tail_buffer->Release(tail_tag);
     }
   } else if (tail_status == 2) { // tagged and filled
-    if (tail_buffer->Join(tail_tag)) {
+    int flush_size = tail_buffer->Join(tail_tag);
+    if (flush_size) {
+#ifdef DEBUG_PLIB
+      if (flush_size < buffers_.buffer_size())
+        fprintf(stderr, "Incomplete: %p\t%d\n", tail_buffer, flush_size);
+#endif
       writer_.Write(tail_buffer->data(0), buffers_.buffer_size(),
           end_addr - tail_len, flag);
       tail_buffer->Release(tail_tag);

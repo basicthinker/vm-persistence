@@ -30,15 +30,17 @@ class Buffer {
   int8_t *data(size_t offset) const;
 
   void Tag(uint64_t thread_tag);
-  // Returns if the current thread should be the flusher, i.e., to do flushing.
-  bool FillJoin(uint64_t thread_tag, int len);
+  // Returns the number of bytes to flush.
+  // Zero if the current thread need not act as a flusher.
+  int FillJoin(uint64_t thread_tag, int len);
 
   // Non-blocking version of Tag() to avoid deadlock
   bool TryTag(uint64_t thread_tag);
   // Used with a pure filler thread. Non-blocking.
   void Fill(uint64_t thread_tag, int len);
-  // Returns if the current thread should be the flusher, i.e., to do flushing.
-  bool Join(uint64_t thread_tag);
+  // Returns the number of bytes to flush.
+  // Zero if the current thread need not act as a flusher.
+  int Join(uint64_t thread_tag);
 
   // Releases filler threads blocked on this buffer. Only called by a flusher.
   void Release(uint64_t thread_tag);
@@ -120,7 +122,7 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
   return notifier_.TakeAction(lambda);
 }
 
-inline bool Buffer::FillJoin(uint64_t thread_tag, int len) {
+inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
   auto pre = [thread_tag, len, this]()->bool {
     dirty_size_ += len;
     assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
@@ -156,20 +158,20 @@ inline bool Buffer::FillJoin(uint64_t thread_tag, int len) {
   };
 
   auto post = [thread_tag, this](std::cv_status status) {
-    if (tag_ != thread_tag) return false;
+    if (tag_ != thread_tag) return 0;
     if (status == std::cv_status::no_timeout) {
       assert(state_ == kFlushing);
-      return true;
+      return dirty_size_;
     }
     if (state_ != kFlushing) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (FillJoin:timeout)\n",
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\tTimeout!\n",
           this, state_, kFlushing);
 #endif
       state_ = kFlushing;
-      return true;
+      return dirty_size_;
     }
-    return false;
+    return 0;
   };
 
   return notifier_.WaitFor(TIME_OUT, pre, lambda, post);
@@ -193,7 +195,7 @@ inline void Buffer::Fill(uint64_t thread_tag, int len) {
   }
 }
 
-inline bool Buffer::Join(uint64_t thread_tag) {
+inline int Buffer::Join(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]()->bool {
     return (tag_ == thread_tag) ? Notifier::kWait : Notifier::kRelease;
   };
@@ -201,14 +203,14 @@ inline bool Buffer::Join(uint64_t thread_tag) {
   auto post = [thread_tag, this](std::cv_status status) {
     if (status == std::cv_status::no_timeout || tag_ != thread_tag ||
         state_ == kFlushing) {
-      return false;
+      return 0;
     } else {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Join:timeout)\n",
+      fprintf(stderr, "%p\t%d => %d (Join)\tTimeout!\n",
           this, state_, kFlushing);
 #endif
       state_ = kFlushing;
-      return true;
+      return dirty_size_;
     }
   };
 
@@ -217,13 +219,20 @@ inline bool Buffer::Join(uint64_t thread_tag) {
 
 inline void Buffer::Release(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]() {
+    assert(tag_ == thread_tag && state_ == kFlushing);
+    if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFree);
 #endif
-    assert(tag_ == thread_tag && state_ == kFlushing);
-    state_ = kFree;
-    tag_ = kInvalidTag;
-    dirty_size_ = 0;
+      state_ = kFree;
+      tag_ = kInvalidTag;
+      dirty_size_ = 0;
+    } else {
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFilling);
+#endif
+      state_ = kFilling;
+    }
   };
   notifier_.TakeAction(lambda);
   notifier_.NotifyAll();
