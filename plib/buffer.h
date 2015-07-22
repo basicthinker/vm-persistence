@@ -99,7 +99,7 @@ inline void Buffer::Tag(uint64_t thread_tag) {
       return Notifier::kRelease;
     }
   };
-  notifier_.Wait(lambda, lambda, [](){});
+  notifier_.Wait(lambda, lambda);
 }
 
 inline bool Buffer::TryTag(uint64_t thread_tag) {
@@ -124,7 +124,9 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
 }
 
 inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
-  auto pre = [thread_tag, len, this]()->bool {
+  int flush_size = 0;
+
+  auto pre = [thread_tag, len, &flush_size, this]()->bool {
     dirty_size_ += len;
     assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
     if (dirty_size_ < buffer_size_) {
@@ -140,11 +142,12 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
       fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
 #endif
       state_ = kFlushing;
+      flush_size = dirty_size_;
       return Notifier::kRelease;
     }
   };
 
-  auto lambda = [thread_tag, this]()->bool {
+  auto lambda = [thread_tag, &flush_size, this]()->bool {
     if (tag_ != thread_tag) return Notifier::kRelease;
     if (state_ == kFilling || state_ == kFlushing) {
       return Notifier::kWait;
@@ -154,32 +157,31 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
 #endif
       assert(state_ == kFull && dirty_size_ == buffer_size_);
       state_ = kFlushing;
+      flush_size = dirty_size_;
       return Notifier::kRelease;
     }
   };
 
-  auto post = [thread_tag, this](std::cv_status status) {
-    if (tag_ != thread_tag) return 0;
-    if (status == std::cv_status::no_timeout) {
-      assert(state_ == kFlushing);
-      return dirty_size_;
-    }
+  auto timeout = [thread_tag, &flush_size, this]() {
+    assert(state_ == kFilling || state_ == kFlushing);
     if (state_ != kFlushing) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (FillJoin)\tTimeout!\n",
           this, state_, kFlushing);
 #endif
       state_ = kFlushing;
-      return dirty_size_;
+      flush_size = dirty_size_;
+      assert(flush_size < buffer_size_);
     }
-    return 0;
   };
 
-  return notifier_.WaitFor(TIME_OUT, pre, lambda, post);
+  notifier_.WaitFor(TIME_OUT, pre, lambda, timeout);
+  return flush_size;
 }
 
 inline void Buffer::Fill(uint64_t thread_tag, int len) {
-  auto lambda = [thread_tag, len, this]()->bool {
+  bool is_full = false;
+  auto lambda = [thread_tag, len, &is_full, this]() {
     dirty_size_ += len;
     assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
     if (dirty_size_ == buffer_size_) {
@@ -187,35 +189,36 @@ inline void Buffer::Fill(uint64_t thread_tag, int len) {
       fprintf(stderr, "%p\t%d => %d (Fill)\n", this, state_, kFull);
 #endif
       state_ = kFull;
-      return true;
+      is_full = true;
     }
-    return false;
   };
-  if (notifier_.TakeAction(lambda)) {
+  notifier_.TakeAction(lambda);
+  if (is_full) {
     notifier_.NotifyAll();
   }
 }
 
 inline int Buffer::Join(uint64_t thread_tag) {
-  auto lambda = [thread_tag, this]()->bool {
+  auto lambda = [thread_tag, this]() {
     return (tag_ == thread_tag) ? Notifier::kWait : Notifier::kRelease;
   };
 
-  auto post = [thread_tag, this](std::cv_status status) {
-    if (status == std::cv_status::no_timeout || tag_ != thread_tag ||
-        state_ == kFlushing) {
-      return 0;
+  int flush_size = 0;
+  auto timeout = [thread_tag, &flush_size, this]() {
+    if (tag_ != thread_tag || state_ == kFlushing) {
+      flush_size = 0;
     } else {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Join)\tTimeout!\n",
           this, state_, kFlushing);
 #endif
       state_ = kFlushing;
-      return dirty_size_;
+      flush_size = dirty_size_;
     }
   };
 
-  return notifier_.WaitFor(TIME_OUT, lambda, lambda, post);
+  notifier_.WaitFor(TIME_OUT, lambda, lambda, timeout);
+  return flush_size;
 }
 
 inline void Buffer::Release(uint64_t thread_tag) {
@@ -228,7 +231,7 @@ inline void Buffer::Release(uint64_t thread_tag) {
       state_ = kFree;
       tag_ = kInvalidTag;
       dirty_size_ = 0;
-    } else {
+    } else { // timeout results in an incomplete flush
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFilling);
 #endif

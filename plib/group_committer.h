@@ -103,7 +103,7 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     head_buffer->Tag(head_tag);
     memcpy(dest, local_buf, head_len);
 #ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
+    fprintf(stderr, "Commit: %p\t[%lu, %d)\n",
         head_buffer, head_addr, head_len);
 #endif
     FillJoin(head_buffer, head_tag, head_len, flag);

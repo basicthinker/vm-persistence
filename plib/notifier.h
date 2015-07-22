@@ -22,11 +22,11 @@ class SleepingNotifier {
   template<class Lambda>
   auto TakeAction(Lambda lambda);
 
-  template<class Pre, class Lambda, class Post>
-  auto Wait(Pre pre, Lambda lambda, Post post);
+  template<class Pre, class Lambda>
+  void Wait(Pre pre, Lambda lambda);
 
-  template<class Pre, class Lambda, class Post>
-  auto WaitFor(int seconds, Pre pre, Lambda lambda, Post post);
+  template<class Pre, class Lambda, class Timeout>
+  void WaitFor(int seconds, Pre pre, Lambda lambda, Timeout timeout);
 
   void NotifyAll();
 
@@ -46,27 +46,26 @@ inline auto SleepingNotifier::TakeAction(Lambda lambda) {
   return lambda();
 }
 
-template<class Pre, class Lambda, class Post>
-inline auto SleepingNotifier::Wait(Pre pre, Lambda lambda, Post post) {
+template<class Pre, class Lambda>
+inline void SleepingNotifier::Wait(Pre pre, Lambda lambda) {
   std::unique_lock<std::mutex> lock(mutex_);
-  if (pre() == kRelease) return post();
+  if (pre() == kRelease) return;
   do {
     condition_.wait(lock);
   } while (lambda() == kWait);
-  return post();
 }
 
-template<class Pre, class Lambda, class Post>
-inline auto SleepingNotifier::WaitFor(int sec,
-    Pre pre, Lambda lambda, Post post) {
+template<class Pre, class Lambda, class Timeout>
+inline void SleepingNotifier::WaitFor(int sec,
+    Pre pre, Lambda lambda, Timeout timeout) {
   std::unique_lock<std::mutex> lock(mutex_);
-  if (pre() == kRelease) return post(std::cv_status::no_timeout);
+  if (pre() == kRelease) return;
   std::cv_status status;
   auto time = std::chrono::system_clock::now() + std::chrono::seconds(sec);
   do {
     status = condition_.wait_until(lock, time);
   } while (status == std::cv_status::no_timeout && lambda() == kWait);
-  return post(status);
+  if (status == std::cv_status::timeout) timeout();
 }
 
 inline void SleepingNotifier::NotifyAll() {
