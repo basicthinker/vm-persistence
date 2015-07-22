@@ -28,6 +28,8 @@ class GroupCommitter {
   void Commit(uint64_t timestamp, void *data, uint32_t size, int flag = 0);
  
  private:
+  void FillJoin(Buffer *buffer, uint64_t tag, int len, int flag);
+
   std::atomic_uint_fast64_t address_ alignas(64);
   BufferArray buffers_ alignas(64);
   Writer &writer_;
@@ -37,6 +39,19 @@ inline GroupCommitter::GroupCommitter(int buffer_size, int num_buffers,
     Writer &writer) :
     address_(0), buffers_(log2(buffer_size), log2(num_buffers)),
     writer_(writer) {
+}
+
+inline void GroupCommitter::FillJoin(
+    Buffer *buffer, uint64_t tag, int len, int flag) {
+  int flush_size = buffer->FillJoin(tag, len);
+  if (flush_size) {
+#ifdef DEBUG_PLIB
+    if (flush_size < buffers_.buffer_size())
+      fprintf(stderr, "Incomplete: %p\t%d\n", buffer, flush_size);
+#endif
+    writer_.Write(buffer->data(0), flush_size, tag, flag);
+    buffer->Release(tag);
+  }
 }
 
 inline void GroupCommitter::Commit(uint64_t timestamp,
@@ -61,16 +76,7 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
 #ifdef DEBUG_PLIB
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n", buffer, head_addr, end_addr);
 #endif
-    int flush_size = buffer->FillJoin(head_tag, total);
-    if (flush_size) {
-#ifdef DEBUG_PLIB
-      if (flush_size < buffers_.buffer_size())
-        fprintf(stderr, "Incomplete: %p\t%d\n", buffer, flush_size);
-#endif
-      writer_.Write(buffer->data(0), flush_size,
-          head_addr - head_offset, flag);
-      buffer->Release(head_tag);
-    }
+    FillJoin(buffer, head_tag, total, flag);
     return;
   }
 
@@ -98,18 +104,9 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     memcpy(dest, local_buf, head_len);
 #ifdef DEBUG_PLIB
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
-        head_buffer, head_addr, head_addr + head_len);
+        head_buffer, head_addr, head_len);
 #endif
-    int flush_size = head_buffer->FillJoin(head_tag, head_len);
-    if (flush_size) {
-#ifdef DEBUG_PLIB
-      if (flush_size < buffers_.buffer_size())
-        fprintf(stderr, "Incomplete: %p\t%d\n", head_buffer, flush_size);
-#endif
-      writer_.Write(head_buffer->data(0), flush_size,
-          head_addr - head_offset, flag);
-      head_buffer->Release(head_tag);
-    }
+    FillJoin(head_buffer, head_tag, head_len, flag);
 
     if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
       int8_t *dest = tail_buffer->data(0);
@@ -136,16 +133,7 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
         tail_buffer, end_addr - tail_len, end_addr);
 #endif
-    int flush_size = tail_buffer->FillJoin(tail_tag, tail_len);
-    if (flush_size) {
-#ifdef DEBUG_PLIB
-      if (flush_size < buffers_.buffer_size())
-        fprintf(stderr, "Incomplete: %p\t%d\n", tail_buffer, flush_size);
-#endif
-      writer_.Write(tail_buffer->data(0), buffers_.buffer_size(),
-          end_addr - tail_len, flag);
-      tail_buffer->Release(tail_tag);
-    }
+    FillJoin(tail_buffer, tail_tag, tail_len, flag);
   } else if (tail_status == 2) { // tagged and filled
     int flush_size = tail_buffer->Join(tail_tag);
     if (flush_size) {
@@ -153,8 +141,7 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
       if (flush_size < buffers_.buffer_size())
         fprintf(stderr, "Incomplete: %p\t%d\n", tail_buffer, flush_size);
 #endif
-      writer_.Write(tail_buffer->data(0), buffers_.buffer_size(),
-          end_addr - tail_len, flag);
+      writer_.Write(tail_buffer->data(0), flush_size, tail_tag, flag);
       tail_buffer->Release(tail_tag);
     }
   }

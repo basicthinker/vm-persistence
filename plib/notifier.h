@@ -65,7 +65,7 @@ inline auto SleepingNotifier::WaitFor(int sec,
   auto time = std::chrono::system_clock::now() + std::chrono::seconds(sec);
   do {
     status = condition_.wait_until(lock, time);
-  } while (lambda() == kWait && status == std::cv_status::no_timeout);
+  } while (status == std::cv_status::no_timeout && lambda() == kWait);
   return post(status);
 }
 

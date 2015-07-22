@@ -107,7 +107,9 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
     if (tag_ == thread_tag) {
       assert(dirty_size_ < buffer_size_);
       return true;
-    } else if (tag_ == kInvalidTag) {
+    } else if (tag_ != kInvalidTag) {
+      return false;
+    } else {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (TryTag)\n", this, kFree, kFilling);
 #endif
@@ -117,7 +119,6 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
       dirty_size_ = 0;
       return true;
     }
-    return false;
   };
   return notifier_.TakeAction(lambda);
 }
