@@ -51,7 +51,7 @@ inline BufferArray::BufferArray(
 
   array_ = (Buffer *)malloc(sizeof(Buffer) << array_shift_);
   for (int i = 0; i < array_size(); ++i) {
-    ::new (array_ + i) Buffer(buffer_size());
+    ::new (array_ + i) Buffer(buffer_size(), array_size(), i);
   }
 }
 

@@ -132,15 +132,21 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     head_len = 0;
   }
 
+  if (head_len + tail_len < total) {
+    uint64_t begin_ba = head_addr + head_len;
+    uint64_t end_ba = head_addr + total - tail_len;
+    assert(end_ba > begin_ba);
 #ifdef DEBUG_PLIB
-  uint64_t hb = head_addr + head_len;
-  uint64_t tb = head_addr + total - tail_len;
-  assert(hb % bs == 0 && tb % bs == 0);
-  fprintf(stderr, "Commit:\t[%lu, %lu)\n", hb / bs, tb / bs);
+    assert(begin_ba % bs == 0 && end_ba % bs == 0);
+    fprintf(stderr, "Commit:\t[%lu, %lu)\n", begin_ba / bs, end_ba / bs);
 #endif
-  // Flushes aligned data without using buffers
-  writer_.Write(local_buf + head_len, total - head_len - tail_len,
-      head_addr + head_len, flag);
+    for (uint64_t ba = begin_ba; ba < end_ba; ba += buffers_.buffer_size()) {
+      buffers_[ba]->Skip(ba);
+    }
+    // Flushes aligned data without using buffers
+    writer_.Write(local_buf + head_len, total - head_len - tail_len,
+        head_addr + head_len, flag);
+  }
 
   if (tail_status == 1) { // not tagged
     int8_t *dest = tail_buffer->data(0);

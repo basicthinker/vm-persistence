@@ -24,7 +24,7 @@ namespace plib {
 class Buffer {
   using Notifier = SleepingNotifier;
  public:
-  Buffer(int buffer_size);
+  Buffer(int buffer_size, int array_size, int index);
   ~Buffer();
 
   int8_t *data(size_t offset) const;
@@ -42,19 +42,21 @@ class Buffer {
   // Zero if the current thread need not act as a flusher.
   int Join(uint64_t thread_tag);
 
+  void Skip(uint64_t thread_tag);
+
   // Releases filler threads blocked on this buffer. Only called by a flusher.
   void Release(uint64_t thread_tag);
 
  private:
   enum State {
-    kFree = 0,
-    kFilling,
+    kFilling = 0,
     kFull,
     kFlushing,
     kReserving,
   };
 
   const int buffer_size_;
+  const int gap_; // Difference between successive tags on this buffer.
   int8_t *data_;
 
   State state_;
@@ -62,14 +64,13 @@ class Buffer {
   int dirty_size_;
 
   Notifier notifier_;
-
-  static const uint64_t kInvalidTag = UINT64_MAX;
 };
 
 // Implementation of Buffer
 
-inline Buffer::Buffer(int buffer_size) : buffer_size_(buffer_size),
-    state_(kFree), tag_(kInvalidTag), dirty_size_(0) {
+inline Buffer::Buffer(int buffer_size, int array_size, int index) :
+    buffer_size_(buffer_size), gap_(buffer_size * array_size),
+    state_(kFilling), tag_(buffer_size * index), dirty_size_(0) {
   data_ = new int8_t[buffer_size];
 }
 
@@ -84,42 +85,14 @@ inline int8_t *Buffer::data(size_t offset) const {
 
 inline void Buffer::Tag(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]() {
-    if (tag_ == thread_tag) {
-      assert(dirty_size_ < buffer_size_);
-      return Notifier::kRelease;
-    } else if (tag_ != kInvalidTag) {
-      return Notifier::kWait;
-    } else {
-      assert(state_ == kFree);
-#ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Tag)\n", this, state_, kFilling);
-#endif
-      state_ = kFilling;
-      tag_ = thread_tag;
-      dirty_size_ = 0;
-      return Notifier::kRelease;
-    }
+    return (tag_ == thread_tag) ? Notifier::kRelease : Notifier::kWait;
   };
   notifier_.Wait(lambda, lambda);
 }
 
 inline bool Buffer::TryTag(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]()->bool {
-    if (tag_ == thread_tag) {
-      assert(dirty_size_ < buffer_size_);
-      return true;
-    } else if (tag_ != kInvalidTag) {
-      return false;
-    } else {
-      assert(state_ == kFree);
-#ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (TryTag)\n", this, state_, kFilling);
-#endif
-      state_ = kFilling;
-      tag_ = thread_tag;
-      dirty_size_ = 0;
-      return true;
-    }
+    return (tag_ == thread_tag);
   };
   return notifier_.TakeAction(lambda);
 }
@@ -128,8 +101,8 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
   int flush_size = 0;
 
   auto fill = [thread_tag, len, &flush_size, this]() {
-    dirty_size_ += len;
     assert(tag_ == thread_tag);
+    dirty_size_ += len;
     if (dirty_size_ < buffer_size_) {
       assert(state_ == kFilling || state_ == kReserving);
 #ifdef DEBUG_PLIB
@@ -150,7 +123,8 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
   };
 
   auto wakeup = [thread_tag, len, &flush_size, this]() {
-    if (tag_ != thread_tag) return Notifier::kRelease;
+    if (tag_ > thread_tag) return Notifier::kRelease;
+    else assert(tag_ == thread_tag);
     if (state_ == kFilling || state_ == kFlushing) {
       return Notifier::kWait;
     } else if (state_ == kFull) {
@@ -169,7 +143,8 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
   };
 
   auto timeout = [thread_tag, len, &flush_size, this]() {
-    if (tag_ != thread_tag) return;
+    if (tag_ > thread_tag) return;
+    else assert(tag_ == thread_tag);
     assert(dirty_size_ < buffer_size_);
     if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
@@ -212,7 +187,8 @@ inline int Buffer::Join(uint64_t thread_tag) {
 
   int flush_size = 0;
   auto timeout = [thread_tag, &flush_size, this]() {
-    if (tag_ != thread_tag) return;
+    if (tag_ > thread_tag) return;
+    else assert(tag_ == thread_tag);
     assert(dirty_size_ < buffer_size_);
     if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
@@ -228,15 +204,29 @@ inline int Buffer::Join(uint64_t thread_tag) {
   return flush_size;
 }
 
+inline void Buffer::Skip(uint64_t thread_tag) {
+  auto lambda = [thread_tag, this] {
+    if (tag_ == thread_tag) {
+      assert(!dirty_size_ );
+      tag_ += gap_;
+      return Notifier::kRelease;
+    } else {
+      assert(tag_ < thread_tag);
+      return Notifier::kWait;
+    }
+  };
+  notifier_.Wait(lambda, lambda);
+}
+
 inline void Buffer::Release(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]() {
     assert(tag_ == thread_tag);
     if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Release)\n", this, state_, kFree);
+      fprintf(stderr, "%p\t%d => %d (Release)\n", this, state_, kFilling);
 #endif
-      state_ = kFree;
-      tag_ = kInvalidTag;
+      state_ = kFilling;
+      tag_ += gap_;
       dirty_size_ = 0;
     } else { // timeout results in an incomplete flush
       assert(dirty_size_ < buffer_size_);
