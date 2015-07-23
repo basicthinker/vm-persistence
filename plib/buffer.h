@@ -134,13 +134,14 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
       assert(state_ == kFilling || state_ == kReserving);
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (FillJoin)\t%d\n",
-          this, state_, state_, dirty_size_);
+          this, state_, state_, len);
 #endif
       return Notifier::kWait;
     } else {
       assert(dirty_size_ == buffer_size_);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\t%d\n",
+          this, state_, kFlushing, len);
 #endif
       state_ = kFlushing;
       flush_size = dirty_size_;
@@ -148,14 +149,15 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
     }
   };
 
-  auto wakeup = [thread_tag, &flush_size, this]() {
+  auto wakeup = [thread_tag, len, &flush_size, this]() {
     if (tag_ != thread_tag) return Notifier::kRelease;
     if (state_ == kFilling || state_ == kFlushing) {
       return Notifier::kWait;
     } else if (state_ == kFull) {
       assert(dirty_size_ == buffer_size_);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\t%d\n",
+          this, state_, kFlushing, len);
 #endif
       state_ = kFlushing;
       flush_size = dirty_size_;
@@ -166,13 +168,13 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
     }
   };
 
-  auto timeout = [thread_tag, &flush_size, this]() {
+  auto timeout = [thread_tag, len, &flush_size, this]() {
     if (tag_ != thread_tag) return;
     assert(dirty_size_ < buffer_size_);
     if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (FillJoin)\tTimeout!\n",
-          this, state_, kReserving);
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\tTimeout!\t%d\n",
+          this, state_, kReserving, len);
 #endif
       state_ = kReserving;
       flush_size = dirty_size_;
@@ -189,7 +191,7 @@ inline void Buffer::Fill(uint64_t thread_tag, int len) {
     assert(tag_ == thread_tag);
     if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Fill)\n", this, state_, kFull);
+      fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n", this, state_, kFull, len);
 #endif
       state_ = kFull;
       return true; // full

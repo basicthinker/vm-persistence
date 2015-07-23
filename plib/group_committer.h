@@ -66,6 +66,9 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
   const uint64_t head_tag = buffers_.BufferTag(head_addr);
   const uint64_t tail_tag = buffers_.BufferTag(end_addr - 1);
   const int head_offset = buffers_.BufferOffset(head_addr);
+#ifdef DEBUG_PLIB
+  const int bs = buffers_.buffer_size();
+#endif
 
   if (head_tag == tail_tag) {
     assert(head_offset + total <= buffers_.buffer_size());
@@ -74,7 +77,8 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     buffer->Tag(head_tag);
     memcpy(dest, local_buf, total);
 #ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n", buffer, head_addr, end_addr);
+    fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu+%lu)\t%d\n", buffer,
+        head_addr / bs, head_addr % bs, end_addr / bs, end_addr % bs, total);
 #endif
     FillJoin(buffer, head_tag, total, flag);
     return;
@@ -88,8 +92,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
   if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
     memcpy(tail_buffer->data(0), local_buf + (total - tail_len), tail_len);
 #ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
-        tail_buffer, end_addr - tail_len, end_addr);
+    uint64_t tb = end_addr - tail_len;
+    assert(tb % bs == 0);
+    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
+        tb / bs, end_addr / bs, end_addr % bs, tail_len);
 #endif
     tail_buffer->Fill(tail_tag, tail_len);
     tail_status = 2;
@@ -103,8 +109,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     head_buffer->Tag(head_tag);
     memcpy(dest, local_buf, head_len);
 #ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu, %d)\n",
-        head_buffer, head_addr, head_len);
+    uint64_t hb = head_addr + head_len;
+    assert(hb % bs == 0);
+    fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu)\t%d\n", head_buffer,
+        head_addr / bs, head_addr % bs, hb / bs, head_len);
 #endif
     FillJoin(head_buffer, head_tag, head_len, flag);
 
@@ -112,8 +120,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
       int8_t *dest = tail_buffer->data(0);
       memcpy(dest, local_buf + (total - tail_len), tail_len);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
-          tail_buffer, end_addr - tail_len, end_addr);
+      uint64_t tb = end_addr - tail_len;
+      assert(tb % bs == 0);
+      fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
+          tb / bs, end_addr / bs, end_addr % bs, tail_len);
 #endif
       tail_buffer->Fill(tail_tag, tail_len);
       tail_status = 2;
@@ -121,6 +131,13 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
   } else {
     head_len = 0;
   }
+
+#ifdef DEBUG_PLIB
+  uint64_t hb = head_addr + head_len;
+  uint64_t tb = head_addr + total - tail_len;
+  assert(hb % bs == 0 && tb % bs == 0);
+  fprintf(stderr, "Commit:\t[%lu, %lu)\n", hb / bs, tb / bs);
+#endif
   // Flushes aligned data without using buffers
   writer_.Write(local_buf + head_len, total - head_len - tail_len,
       head_addr + head_len, flag);
@@ -130,8 +147,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     tail_buffer->Tag(tail_tag);
     memcpy(dest, local_buf + (total - tail_len), tail_len);
 #ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu, %lu)\n",
-        tail_buffer, end_addr - tail_len, end_addr);
+    uint64_t tb = end_addr - tail_len;
+    assert(tb % bs == 0);
+    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
+        tb / bs, end_addr / bs, end_addr % bs, tail_len);
 #endif
     FillJoin(tail_buffer, tail_tag, tail_len, flag);
   } else if (tail_status == 2) { // tagged and filled
