@@ -47,10 +47,11 @@ class Buffer {
 
  private:
   enum State {
-    kFree,
+    kFree = 0,
     kFilling,
     kFull,
     kFlushing,
+    kReserving,
   };
 
   const int buffer_size_;
@@ -82,17 +83,17 @@ inline int8_t *Buffer::data(size_t offset) const {
 }
 
 inline void Buffer::Tag(uint64_t thread_tag) {
-  auto lambda = [thread_tag, this]()->bool {
+  auto lambda = [thread_tag, this]() {
     if (tag_ == thread_tag) {
       assert(dirty_size_ < buffer_size_);
       return Notifier::kRelease;
     } else if (tag_ != kInvalidTag) {
       return Notifier::kWait;
     } else {
-#ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Tag)\n", this, kFree, kFilling);
-#endif
       assert(state_ == kFree);
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (Tag)\n", this, state_, kFilling);
+#endif
       state_ = kFilling;
       tag_ = thread_tag;
       dirty_size_ = 0;
@@ -110,10 +111,10 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
     } else if (tag_ != kInvalidTag) {
       return false;
     } else {
-#ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (TryTag)\n", this, kFree, kFilling);
-#endif
       assert(state_ == kFree);
+#ifdef DEBUG_PLIB
+      fprintf(stderr, "%p\t%d => %d (TryTag)\n", this, state_, kFilling);
+#endif
       state_ = kFilling;
       tag_ = thread_tag;
       dirty_size_ = 0;
@@ -126,18 +127,18 @@ inline bool Buffer::TryTag(uint64_t thread_tag) {
 inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
   int flush_size = 0;
 
-  auto pre = [thread_tag, len, &flush_size, this]()->bool {
+  auto fill = [thread_tag, len, &flush_size, this]() {
     dirty_size_ += len;
-    assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
+    assert(tag_ == thread_tag);
     if (dirty_size_ < buffer_size_) {
+      assert(state_ == kFilling || state_ == kReserving);
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (FillJoin)\t%d\n",
-          this, state_, kFilling, dirty_size_);
+          this, state_, state_, dirty_size_);
 #endif
-      state_ = kFilling;
       return Notifier::kWait;
     } else {
-      // Acts as the flusher.
+      assert(dirty_size_ == buffer_size_);
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
 #endif
@@ -147,93 +148,98 @@ inline int Buffer::FillJoin(uint64_t thread_tag, int len) {
     }
   };
 
-  auto lambda = [thread_tag, &flush_size, this]()->bool {
+  auto wakeup = [thread_tag, &flush_size, this]() {
     if (tag_ != thread_tag) return Notifier::kRelease;
     if (state_ == kFilling || state_ == kFlushing) {
       return Notifier::kWait;
-    } else {
+    } else if (state_ == kFull) {
+      assert(dirty_size_ == buffer_size_);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, kFull, kFlushing);
+      fprintf(stderr, "%p\t%d => %d (FillJoin)\n", this, state_, kFlushing);
 #endif
-      assert(state_ == kFull && dirty_size_ == buffer_size_);
       state_ = kFlushing;
       flush_size = dirty_size_;
+      return Notifier::kRelease;
+    } else {
+      assert(state_ == kReserving);
       return Notifier::kRelease;
     }
   };
 
   auto timeout = [thread_tag, &flush_size, this]() {
-    assert(state_ == kFilling || state_ == kFlushing);
-    if (state_ != kFlushing) {
+    if (tag_ != thread_tag) return;
+    assert(dirty_size_ < buffer_size_);
+    if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (FillJoin)\tTimeout!\n",
-          this, state_, kFlushing);
+          this, state_, kReserving);
 #endif
-      state_ = kFlushing;
+      state_ = kReserving;
       flush_size = dirty_size_;
-      assert(flush_size < buffer_size_);
     }
   };
 
-  notifier_.WaitFor(TIME_OUT, pre, lambda, timeout);
+  notifier_.WaitFor(TIME_OUT, fill, wakeup, timeout);
   return flush_size;
 }
 
 inline void Buffer::Fill(uint64_t thread_tag, int len) {
-  bool is_full = false;
-  auto lambda = [thread_tag, len, &is_full, this]() {
+  auto fill = [thread_tag, len, this]()->bool {
     dirty_size_ += len;
-    assert(tag_ == thread_tag && dirty_size_ <= buffer_size_);
+    assert(tag_ == thread_tag);
     if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Fill)\n", this, state_, kFull);
 #endif
       state_ = kFull;
-      is_full = true;
+      return true; // full
+    } else {
+      assert(dirty_size_ < buffer_size_);
+      return false;
     }
   };
-  notifier_.TakeAction(lambda);
-  if (is_full) {
+  if (notifier_.TakeAction(fill)) {
     notifier_.NotifyAll();
   }
 }
 
 inline int Buffer::Join(uint64_t thread_tag) {
-  auto lambda = [thread_tag, this]() {
+  auto wakeup = [thread_tag, this]() {
     return (tag_ == thread_tag) ? Notifier::kWait : Notifier::kRelease;
   };
 
   int flush_size = 0;
   auto timeout = [thread_tag, &flush_size, this]() {
-    if (tag_ != thread_tag || state_ == kFlushing) {
-      flush_size = 0;
-    } else {
+    if (tag_ != thread_tag) return;
+    assert(dirty_size_ < buffer_size_);
+    if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Join)\tTimeout!\n",
-          this, state_, kFlushing);
+          this, state_, kReserving);
 #endif
-      state_ = kFlushing;
+      state_ = kReserving;
       flush_size = dirty_size_;
     }
   };
 
-  notifier_.WaitFor(TIME_OUT, lambda, lambda, timeout);
+  notifier_.WaitFor(TIME_OUT, wakeup, wakeup, timeout);
   return flush_size;
 }
 
 inline void Buffer::Release(uint64_t thread_tag) {
   auto lambda = [thread_tag, this]() {
-    assert(tag_ == thread_tag && state_ == kFlushing);
+    assert(tag_ == thread_tag);
     if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFree);
+      fprintf(stderr, "%p\t%d => %d (Release)\n", this, state_, kFree);
 #endif
       state_ = kFree;
       tag_ = kInvalidTag;
       dirty_size_ = 0;
     } else { // timeout results in an incomplete flush
+      assert(dirty_size_ < buffer_size_);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Release)\n", this, kFlushing, kFilling);
+      fprintf(stderr, "%p\t%d => %d (Release)\n", this, state_, kFilling);
 #endif
       state_ = kFilling;
     }
