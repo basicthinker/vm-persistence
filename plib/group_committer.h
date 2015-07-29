@@ -28,7 +28,8 @@ class GroupCommitter {
   void Commit(uint64_t timestamp, void *data, uint32_t size, int flag = 0);
  
  private:
-  void FillJoin(Buffer *buffer, uint64_t tag, int len, int flag);
+  void Fill(uint64_t tag, uint64_t offset, int len, char *data, int flag);
+  bool TryPad(uint64_t tag, int len, char *data);
 
   std::atomic_uint_fast64_t address_ alignas(64);
   BufferArray buffers_ alignas(64);
@@ -41,9 +42,18 @@ inline GroupCommitter::GroupCommitter(int buffer_size, int num_buffers,
     writer_(writer) {
 }
 
-inline void GroupCommitter::FillJoin(
-    Buffer *buffer, uint64_t tag, int len, int flag) {
-  int flush_size = buffer->FillJoin(tag, len);
+inline void GroupCommitter::Fill(uint64_t tag, uint64_t offset, int len,
+    char *data, int flag) {
+  Buffer *buffer = buffers_[tag];
+  buffer->Tag(tag);
+  memcpy(buffer->data(offset), data, len);
+#ifdef DEBUG_PLIB
+  uint64_t bs = buffers_.buffer_size();
+  uint64_t addr = tag + offset;
+  fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu+%lu)\t%d\n", buffer,
+      addr / bs, addr % bs, (addr + len) / bs, (addr + len) % bs, len);
+#endif
+  int flush_size = buffer->Fill(tag, len);
   if (flush_size) {
 #ifdef DEBUG_PLIB
     if (flush_size < buffers_.buffer_size())
@@ -54,89 +64,61 @@ inline void GroupCommitter::FillJoin(
   }
 }
 
+inline bool GroupCommitter::TryPad(uint64_t tag, int len, char *data) {
+  Buffer *buffer = buffers_[tag];
+  if (buffer->TryTag(tag)) {
+    memcpy(buffer->data(0), data, len);
+#ifdef DEBUG_PLIB
+    uint64_t bs = buffers_.buffer_size();
+    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", buffer,
+        tag / bs, (tag + len) / bs, (tag + len) % bs, len);
+#endif
+    buffer->Pad(tag, len);
+    return true;
+  }
+  return false;
+}
+
 inline void GroupCommitter::Commit(uint64_t timestamp,
     void *data, uint32_t size, int flag) {
   int crc32len = CRC32DataLength(size);
   const int total = crc32len < kMinWriteSize ? kMinWriteSize : crc32len;
-  char local_buf[total]; // may contain redandunt trailing bytes
-  CRC32DataEncode(local_buf, timestamp, data, size);
+  char source[total]; // may contain redandunt trailing bytes
+  CRC32DataEncode(source, timestamp, data, size);
 
   const uint64_t head_addr = address_.fetch_add(total);
   const uint64_t end_addr = head_addr + total;
   const uint64_t head_tag = buffers_.BufferTag(head_addr);
   const uint64_t tail_tag = buffers_.BufferTag(end_addr - 1);
   const int head_offset = buffers_.BufferOffset(head_addr);
-#ifdef DEBUG_PLIB
-  const int bs = buffers_.buffer_size();
-#endif
+  const int tail_len = buffers_.BufferOffset(end_addr);
 
   if (head_tag == tail_tag) {
-    assert(head_offset + total <= buffers_.buffer_size());
-    Buffer *buffer = buffers_[head_addr];
-    int8_t *dest = buffer->data(head_offset);
-    buffer->Tag(head_tag);
-    memcpy(dest, local_buf, total);
-#ifdef DEBUG_PLIB
-    fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu+%lu)\t%d\n", buffer,
-        head_addr / bs, head_addr % bs, end_addr / bs, end_addr % bs, total);
-#endif
-    FillJoin(buffer, head_tag, total, flag);
+    Fill(head_tag, head_offset, total, source, flag);
     return;
   }
 
   // Cross buffers
-
-  const int tail_len = buffers_.BufferOffset(end_addr);
-  int tail_status = (tail_len != 0); // 0: no tail; 1: not tagged
-  Buffer *tail_buffer = buffers_[end_addr - 1];
-  if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
-    memcpy(tail_buffer->data(0), local_buf + (total - tail_len), tail_len);
-#ifdef DEBUG_PLIB
-    uint64_t tb = end_addr - tail_len;
-    assert(tb % bs == 0);
-    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
-        tb / bs, end_addr / bs, end_addr % bs, tail_len);
-#endif
-    tail_buffer->Fill(tail_tag, tail_len);
-    tail_status = 2;
+  int tail_status = (tail_len != 0);
+  if (tail_status == 1) {
+    tail_status += TryPad(tail_tag, tail_len, source + (total - tail_len));
   }
 
-  int head_len;
+  int head_len = 0;
   if (head_offset) { // handles the head
-    Buffer *head_buffer = buffers_[head_addr];
-    int8_t *dest = head_buffer->data(head_offset);
     head_len = buffers_.buffer_size() - head_offset;
-    head_buffer->Tag(head_tag);
-    memcpy(dest, local_buf, head_len);
-#ifdef DEBUG_PLIB
-    uint64_t hb = head_addr + head_len;
-    assert(hb % bs == 0);
-    fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu)\t%d\n", head_buffer,
-        head_addr / bs, head_addr % bs, hb / bs, head_len);
-#endif
-    FillJoin(head_buffer, head_tag, head_len, flag);
+    Fill(head_tag, head_offset, head_len, source, flag);
 
-    if (tail_status == 1 && tail_buffer->TryTag(tail_tag)) {
-      int8_t *dest = tail_buffer->data(0);
-      memcpy(dest, local_buf + (total - tail_len), tail_len);
-#ifdef DEBUG_PLIB
-      uint64_t tb = end_addr - tail_len;
-      assert(tb % bs == 0);
-      fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
-          tb / bs, end_addr / bs, end_addr % bs, tail_len);
-#endif
-      tail_buffer->Fill(tail_tag, tail_len);
-      tail_status = 2;
+    if (tail_status == 1) {
+      tail_status += TryPad(tail_tag, tail_len, source + (total - tail_len));
     }
-  } else {
-    head_len = 0;
   }
 
   if (head_len + tail_len < total) {
     uint64_t begin_ba = head_addr + head_len;
     uint64_t end_ba = head_addr + total - tail_len;
-    assert(end_ba > begin_ba);
 #ifdef DEBUG_PLIB
+    uint64_t bs = buffers_.buffer_size();
     assert(begin_ba % bs == 0 && end_ba % bs == 0);
     fprintf(stderr, "Commit:\t[%lu, %lu)\n", begin_ba / bs, end_ba / bs);
 #endif
@@ -144,22 +126,14 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
       buffers_[ba]->Skip(ba);
     }
     // Flushes aligned data without using buffers
-    writer_.Write(local_buf + head_len, total - head_len - tail_len,
+    writer_.Write(source + head_len, total - head_len - tail_len,
         head_addr + head_len, flag);
   }
 
   if (tail_status == 1) { // not tagged
-    int8_t *dest = tail_buffer->data(0);
-    tail_buffer->Tag(tail_tag);
-    memcpy(dest, local_buf + (total - tail_len), tail_len);
-#ifdef DEBUG_PLIB
-    uint64_t tb = end_addr - tail_len;
-    assert(tb % bs == 0);
-    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", tail_buffer,
-        tb / bs, end_addr / bs, end_addr % bs, tail_len);
-#endif
-    FillJoin(tail_buffer, tail_tag, tail_len, flag);
+    Fill(tail_tag, 0, tail_len, source + (total - tail_len), flag);
   } else if (tail_status == 2) { // tagged and filled
+    Buffer *tail_buffer = buffers_[tail_tag];
     int flush_size = tail_buffer->Join(tail_tag);
     if (flush_size) {
 #ifdef DEBUG_PLIB
