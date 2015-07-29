@@ -69,6 +69,7 @@ inline void SleepingNotifier::WaitFor(int sec,
 }
 
 inline void SleepingNotifier::NotifyAll() {
+  std::unique_lock<std::mutex> lock(mutex_);
   condition_.notify_all();
 }
 

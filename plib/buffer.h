@@ -210,6 +210,7 @@ inline void Buffer::Skip(uint64_t thread_tag) {
     }
   };
   notifier_.Wait(lambda, lambda);
+  notifier_.NotifyAll();
 }
 
 inline void Buffer::Release(uint64_t thread_tag) {

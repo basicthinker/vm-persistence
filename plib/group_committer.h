@@ -50,14 +50,15 @@ inline void GroupCommitter::Fill(uint64_t tag, uint64_t offset, int len,
 #ifdef DEBUG_PLIB
   uint64_t bs = buffers_.buffer_size();
   uint64_t addr = tag + offset;
-  fprintf(stderr, "Commit: %p\t[%lu+%lu, %lu+%lu)\t%d\n", buffer,
+  fprintf(stderr, "Fill:\t%lx on %p\t[%lu+%lu, %lu+%lu)\t%d\n",
+      std::this_thread::get_id(), buffer,
       addr / bs, addr % bs, (addr + len) / bs, (addr + len) % bs, len);
 #endif
   int flush_size = buffer->Fill(tag, len);
   if (flush_size) {
 #ifdef DEBUG_PLIB
     if (flush_size < buffers_.buffer_size())
-      fprintf(stderr, "Incomplete: %p\t%d\n", buffer, flush_size);
+      fprintf(stderr, "Reserve: %p\t%d\n", buffer, flush_size);
 #endif
     writer_.Write(buffer->data(0), flush_size, tag, flag);
     buffer->Release(tag);
@@ -70,7 +71,8 @@ inline bool GroupCommitter::TryPad(uint64_t tag, int len, char *data) {
     memcpy(buffer->data(0), data, len);
 #ifdef DEBUG_PLIB
     uint64_t bs = buffers_.buffer_size();
-    fprintf(stderr, "Commit: %p\t[%lu, %lu+%lu)\t%d\n", buffer,
+    fprintf(stderr, "Pad:\t%lx on %p\t[%lu, %lu+%lu)\t%d\n",
+        std::this_thread::get_id(), buffer,
         tag / bs, (tag + len) / bs, (tag + len) % bs, len);
 #endif
     buffer->Pad(tag, len);
@@ -120,7 +122,8 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
 #ifdef DEBUG_PLIB
     uint64_t bs = buffers_.buffer_size();
     assert(begin_ba % bs == 0 && end_ba % bs == 0);
-    fprintf(stderr, "Commit:\t[%lu, %lu)\n", begin_ba / bs, end_ba / bs);
+    fprintf(stderr, "Commit:\t%lx\t[%lu, %lu)\n",
+        std::this_thread::get_id(), begin_ba / bs, end_ba / bs);
 #endif
     for (uint64_t ba = begin_ba; ba < end_ba; ba += buffers_.buffer_size()) {
       buffers_[ba]->Skip(ba);
@@ -138,7 +141,8 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     if (flush_size) {
 #ifdef DEBUG_PLIB
       if (flush_size < buffers_.buffer_size())
-        fprintf(stderr, "Incomplete: %p\t%d\n", tail_buffer, flush_size);
+        fprintf(stderr, "Reserve:\t%lx on %p\t%d\n",
+            std::this_thread::get_id(), tail_buffer, flush_size);
 #endif
       writer_.Write(tail_buffer->data(0), flush_size, tail_tag, flag);
       tail_buffer->Release(tail_tag);
