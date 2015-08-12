@@ -106,14 +106,15 @@ inline int Buffer::Fill(uint64_t thread_tag, int len) {
     if (dirty_size_ < buffer_size_) {
       assert(state_ == kFilling || state_ == kReserving);
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n", this, state_, state_, len);
+      fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n",
+        this, state_, state_, dirty_size_);
 #endif
       return Notifier::kWait;
     } else {
       assert(dirty_size_ == buffer_size_);
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n",
-          this, state_, kFlushing, len);
+          this, state_, kFlushing, dirty_size_);
 #endif
       state_ = kFlushing;
       flush_size = dirty_size_;
@@ -128,7 +129,7 @@ inline int Buffer::Fill(uint64_t thread_tag, int len) {
     } else if (state_ == kFull) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n",
-          this, state_, kFlushing, len);
+          this, state_, kFlushing, dirty_size_);
 #endif
       state_ = kFlushing;
       flush_size = dirty_size_;
@@ -144,7 +145,7 @@ inline int Buffer::Fill(uint64_t thread_tag, int len) {
     if (state_ == kFilling) {
 #ifdef DEBUG_PLIB
       fprintf(stderr, "%p\t%d => %d (Fill)\tTimeout!\t%d\n",
-          this, state_, kReserving, len);
+          this, state_, kReserving, dirty_size_);
 #endif
       state_ = kReserving;
       flush_size = dirty_size_;
@@ -161,7 +162,8 @@ inline void Buffer::Pad(uint64_t thread_tag, int len) {
     assert(tag_ == thread_tag && state_ == kFilling);
     if (dirty_size_ == buffer_size_) {
 #ifdef DEBUG_PLIB
-      fprintf(stderr, "%p\t%d => %d (Fill)\t%d\n", this, state_, kFull, len);
+      fprintf(stderr, "%p\t%d => %d (Pad)\t%d\n",
+          this, state_, kFull, dirty_size_);
 #endif
       state_ = kFull;
       return true; // full

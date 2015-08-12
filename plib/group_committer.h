@@ -45,20 +45,24 @@ inline GroupCommitter::GroupCommitter(int buffer_size, int num_buffers,
 inline void GroupCommitter::Fill(uint64_t tag, uint64_t offset, int len,
     char *data, int flag) {
   Buffer *buffer = buffers_[tag];
-  buffer->Tag(tag);
-  memcpy(buffer->data(offset), data, len);
 #ifdef DEBUG_PLIB
   uint64_t bs = buffers_.buffer_size();
   uint64_t addr = tag + offset;
-  fprintf(stderr, "Fill:\t%lx on %p\t[%lu+%lu, %lu+%lu)\t%d\n",
-      std::this_thread::get_id(), buffer,
-      addr / bs, addr % bs, (addr + len) / bs, (addr + len) % bs, len);
+  uint64_t end = addr + len;
+  int tid = (uint16_t)std::hash<std::thread::id>()(std::this_thread::get_id());
+  fprintf(stderr, "Thread\t%d\ttags\t%p\t[%lu]\n", tid, buffer, tag / bs);
+#endif
+  buffer->Tag(tag);
+  memcpy(buffer->data(offset), data, len);
+#ifdef DEBUG_PLIB
+  fprintf(stderr, "Thread\t%d\tfills\t%p\t[%lu+%lu, %lu+%lu)\t%d\n",
+      tid, buffer, addr / bs, addr % bs, end / bs, end % bs, len);
 #endif
   int flush_size = buffer->Fill(tag, len);
   if (flush_size) {
 #ifdef DEBUG_PLIB
-    if (flush_size < buffers_.buffer_size())
-      fprintf(stderr, "Reserve: %p\t%d\n", buffer, flush_size);
+    fprintf(stderr, "Thread\t%d\tflushes\t%p\t%d\n",
+        tid, buffer, flush_size);
 #endif
     writer_.Write(buffer->data(0), flush_size, tag, flag);
     buffer->Release(tag);
@@ -71,9 +75,10 @@ inline bool GroupCommitter::TryPad(uint64_t tag, int len, char *data) {
     memcpy(buffer->data(0), data, len);
 #ifdef DEBUG_PLIB
     uint64_t bs = buffers_.buffer_size();
-    fprintf(stderr, "Pad:\t%lx on %p\t[%lu, %lu+%lu)\t%d\n",
-        std::this_thread::get_id(), buffer,
-        tag / bs, (tag + len) / bs, (tag + len) % bs, len);
+    int tid =
+        (uint16_t)std::hash<std::thread::id>()(std::this_thread::get_id());
+    fprintf(stderr, "Thread\t%d\tpads\t%p\t[%lu, %lu+%lu)\t%d\n",
+        tid, buffer, tag / bs, (tag + len) / bs, (tag + len) % bs, len);
 #endif
     buffer->Pad(tag, len);
     return true;
@@ -121,9 +126,11 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     uint64_t end_ba = head_addr + total - tail_len;
 #ifdef DEBUG_PLIB
     uint64_t bs = buffers_.buffer_size();
+    int tid =
+        (uint16_t)std::hash<std::thread::id>()(std::this_thread::get_id());
     assert(begin_ba % bs == 0 && end_ba % bs == 0);
-    fprintf(stderr, "Commit:\t%lx\t[%lu, %lu)\n",
-        std::this_thread::get_id(), begin_ba / bs, end_ba / bs);
+    fprintf(stderr, "Thread\t%d\tflushes\t[%lu, %lu)\n",
+        tid, begin_ba / bs, end_ba / bs);
 #endif
     for (uint64_t ba = begin_ba; ba < end_ba; ba += buffers_.buffer_size()) {
       buffers_[ba]->Skip(ba);
@@ -140,9 +147,10 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
     int flush_size = tail_buffer->Join(tail_tag);
     if (flush_size) {
 #ifdef DEBUG_PLIB
-      if (flush_size < buffers_.buffer_size())
-        fprintf(stderr, "Reserve:\t%lx on %p\t%d\n",
-            std::this_thread::get_id(), tail_buffer, flush_size);
+      int tid =
+          (uint16_t)std::hash<std::thread::id>()(std::this_thread::get_id());
+      fprintf(stderr, "Thread\t%d\tflushes\t%p\t%d\n",
+          tid, tail_buffer, flush_size);
 #endif
       writer_.Write(tail_buffer->data(0), flush_size, tail_tag, flag);
       tail_buffer->Release(tail_tag);
@@ -153,3 +161,4 @@ inline void GroupCommitter::Commit(uint64_t timestamp,
 } // namespace plib
 
 #endif // VM_PERSISTENCE_PLIB_GROUP_COMMITER_H_
+
